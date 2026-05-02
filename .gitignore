@@ -3,6 +3,16 @@
 # dependencies
 node_modules/
 
+# Gradle / Android
+.gradle/
+build/
+**/build/
+local.properties
+captures/
+*.apk
+*.aab
+*.ap_
+
 # Expo
 .expo/
 dist/
@@ -25,6 +35,14 @@ expo-env.d.ts
 npm-debug.*
 yarn-debug.*
 yarn-error.*
+logcat*.txt
+device-*.png
+device-ui*.xml
+*-ui.xml
+auth-check.xml
+post-unlock.xml
+teledrive-*.xml
+teledrive-test*.db
 
 # macOS
 .DS_Store
@@ -32,6 +50,7 @@ yarn-error.*
 
 # local env files
 .env*.local
+.env
 
 # typescript
 *.tsbuildinfo

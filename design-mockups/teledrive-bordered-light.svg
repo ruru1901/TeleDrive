@@ -1,0 +1,150 @@
+<svg width="1080" height="2400" viewBox="0 0 1080 2400" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="cardShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#000000" flood-opacity="0.08"/>
+    </filter>
+  </defs>
+
+  <rect width="1080" height="2400" fill="#F4F4F4"/>
+  <rect x="150" y="60" width="780" height="2260" rx="0" fill="#FFFFFF" stroke="#000000" stroke-width="6"/>
+
+  <g>
+    <path d="M215 150C215 130 230 118 247 118C255 103 271 95 287 100C300 88 320 89 330 104C346 102 360 112 363 127C381 130 394 145 394 162C394 182 378 197 358 197H248C229 197 215 182 215 163V150Z" fill="#FFFFFF" stroke="#000000" stroke-width="6" stroke-linejoin="round"/>
+    <text x="410" y="172" fill="#1F1F1F" font-size="44" font-family="Roboto, Arial, sans-serif" font-weight="500">TeleDrive</text>
+    <circle cx="870" cy="155" r="24" fill="#1A73E8" stroke="#000000" stroke-width="3"/>
+    <circle cx="870" cy="148" r="4" fill="#FFFFFF"/>
+    <rect x="866" y="155" width="8" height="12" rx="4" fill="#FFFFFF"/>
+  </g>
+
+  <rect x="190" y="240" width="700" height="78" rx="39" fill="#FFFFFF" stroke="#000000" stroke-width="3"/>
+  <circle cx="240" cy="279" r="15" stroke="#5F6368" stroke-width="4"/>
+  <line x1="251" y1="290" x2="264" y2="303" stroke="#5F6368" stroke-width="4" stroke-linecap="round"/>
+  <text x="285" y="288" fill="#5F6368" font-size="24" font-family="Roboto, Arial, sans-serif">Search in TeleDrive</text>
+
+  <rect x="170" y="370" width="740" height="460" fill="#F8F9FA" stroke="#000000" stroke-width="3"/>
+  <text x="210" y="420" fill="#1F1F1F" font-size="24" font-family="Roboto, Arial, sans-serif" font-weight="500">Categories</text>
+
+  <g filter="url(#cardShadow)" font-family="Roboto, Arial, sans-serif">
+    <rect x="210" y="450" width="300" height="110" rx="18" fill="#FFFFFF" stroke="#000000" stroke-width="3"/>
+    <rect x="570" y="450" width="300" height="110" rx="18" fill="#FFFFFF" stroke="#000000" stroke-width="3"/>
+    <rect x="210" y="590" width="300" height="110" rx="18" fill="#FFFFFF" stroke="#000000" stroke-width="3"/>
+    <rect x="570" y="590" width="300" height="110" rx="18" fill="#FFFFFF" stroke="#000000" stroke-width="3"/>
+
+    <rect x="240" y="480" width="38" height="38" rx="10" fill="#E8F0FE" stroke="#000000" stroke-width="2"/>
+    <rect x="246" y="487" width="26" height="18" rx="4" fill="#1A73E8"/>
+    <circle cx="255" cy="494" r="3" fill="#FFFFFF"/>
+    <path d="M247 505L255 497L260 501L266 494L272 505H247Z" fill="#FFFFFF"/>
+    <text x="300" y="497" fill="#202124" font-size="26" font-weight="500">Photos</text>
+    <text x="300" y="530" fill="#5F6368" font-size="18">1,284 files</text>
+
+    <rect x="600" y="480" width="38" height="38" rx="10" fill="#F3E8FF" stroke="#000000" stroke-width="2"/>
+    <rect x="608" y="488" width="22" height="16" rx="4" fill="#A142F4"/>
+    <polygon points="616,491 616,501 625,496" fill="#FFFFFF"/>
+    <text x="660" y="497" fill="#202124" font-size="26" font-weight="500">Videos</text>
+    <text x="660" y="530" fill="#5F6368" font-size="18">318 files</text>
+
+    <rect x="240" y="620" width="38" height="38" rx="10" fill="#E6F4EA" stroke="#000000" stroke-width="2"/>
+    <path d="M250 628H268V650H250Z" fill="#188038"/>
+    <path d="M262 628V636H268" stroke="#FFFFFF" stroke-width="2"/>
+    <text x="300" y="637" fill="#202124" font-size="26" font-weight="500">Files</text>
+    <text x="300" y="670" fill="#5F6368" font-size="18">642 files</text>
+
+    <rect x="600" y="620" width="38" height="38" rx="10" fill="#FEF7E0" stroke="#000000" stroke-width="2"/>
+    <path d="M619 631C613 631 608 636 608 643C608 650 613 655 619 655C626 655 631 650 631 643V639" stroke="#F9AB00" stroke-width="4" stroke-linecap="round"/>
+    <text x="660" y="637" fill="#202124" font-size="26" font-weight="500">Audio</text>
+    <text x="660" y="670" fill="#5F6368" font-size="18">92 files</text>
+  </g>
+
+  <rect x="170" y="850" width="740" height="930" fill="#FFFFFF" stroke="#000000" stroke-width="3"/>
+  <text x="210" y="905" fill="#1F1F1F" font-size="28" font-family="Roboto, Arial, sans-serif" font-weight="500">All files</text>
+
+  <rect x="210" y="945" width="660" height="56" rx="20" fill="#FFFFFF" stroke="#000000" stroke-width="2"/>
+  <text x="225" y="980" fill="#5F6368" font-size="18" font-family="Roboto, Arial, sans-serif">Sort by</text>
+  <rect x="310" y="956" width="120" height="32" rx="16" fill="#E8F0FE" stroke="#000000" stroke-width="1.5"/>
+  <text x="370" y="978" fill="#1A73E8" text-anchor="middle" font-size="15" font-family="Roboto, Arial, sans-serif">Name A-Z</text>
+  <rect x="445" y="956" width="120" height="32" rx="16" fill="#FFFFFF" stroke="#000000" stroke-width="1.5"/>
+  <text x="505" y="978" fill="#5F6368" text-anchor="middle" font-size="15" font-family="Roboto, Arial, sans-serif">Name Z-A</text>
+  <rect x="580" y="956" width="78" height="32" rx="16" fill="#FFFFFF" stroke="#000000" stroke-width="1.5"/>
+  <text x="619" y="978" fill="#5F6368" text-anchor="middle" font-size="15" font-family="Roboto, Arial, sans-serif">Size</text>
+  <rect x="673" y="956" width="150" height="32" rx="16" fill="#FFFFFF" stroke="#000000" stroke-width="1.5"/>
+  <text x="748" y="978" fill="#5F6368" text-anchor="middle" font-size="15" font-family="Roboto, Arial, sans-serif">Created date</text>
+
+  <g font-family="Roboto, Arial, sans-serif">
+    <line x1="210" y1="1085" x2="870" y2="1085" stroke="#DADCE0" stroke-width="2"/>
+    <circle cx="250" cy="1050" r="18" fill="#E8F0FE" stroke="#000000" stroke-width="1.5"/>
+    <path d="M242 1042H258V1061H242Z" fill="#1A73E8"/>
+    <path d="M254 1042V1049H258" stroke="#FFFFFF" stroke-width="2"/>
+    <text x="290" y="1043" fill="#202124" font-size="24">Brand_Guidelines.pdf</text>
+    <text x="290" y="1071" fill="#5F6368" font-size="17">1.8 MB • Apr 29 • Desktop Sync</text>
+    <text x="850" y="1059" fill="#5F6368" font-size="26">⋮</text>
+
+    <line x1="210" y1="1195" x2="870" y2="1195" stroke="#DADCE0" stroke-width="2"/>
+    <circle cx="250" cy="1160" r="18" fill="#F3E8FF" stroke="#000000" stroke-width="1.5"/>
+    <rect x="242" y="1150" width="16" height="14" rx="3" fill="#A142F4"/>
+    <polygon points="248,1152 248,1161 255,1156" fill="#FFFFFF"/>
+    <text x="290" y="1153" fill="#202124" font-size="24">Launch_Cut.mp4</text>
+    <text x="290" y="1181" fill="#5F6368" font-size="17">238 MB • Apr 28 • Camera Uploads</text>
+    <text x="850" y="1169" fill="#5F6368" font-size="26">⋮</text>
+
+    <line x1="210" y1="1305" x2="870" y2="1305" stroke="#DADCE0" stroke-width="2"/>
+    <circle cx="250" cy="1270" r="18" fill="#E6F4EA" stroke="#000000" stroke-width="1.5"/>
+    <path d="M242 1260H258V1278H242Z" fill="#188038"/>
+    <path d="M253 1260V1266H258" stroke="#FFFFFF" stroke-width="2"/>
+    <text x="290" y="1263" fill="#202124" font-size="24">Project_Roadmap.xlsx</text>
+    <text x="290" y="1291" fill="#5F6368" font-size="17">524 KB • Apr 27 • Shared Folder</text>
+    <text x="850" y="1279" fill="#5F6368" font-size="26">⋮</text>
+
+    <line x1="210" y1="1415" x2="870" y2="1415" stroke="#DADCE0" stroke-width="2"/>
+    <circle cx="250" cy="1380" r="18" fill="#E8F0FE" stroke="#000000" stroke-width="1.5"/>
+    <rect x="241" y="1370" width="18" height="13" rx="3" fill="#1A73E8"/>
+    <path d="M242 1382L248 1376L252 1379L257 1374L260 1382H242Z" fill="#FFFFFF"/>
+    <text x="290" y="1373" fill="#202124" font-size="24">Vacation_Album.zip</text>
+    <text x="290" y="1401" fill="#5F6368" font-size="17">84.2 MB • Apr 25 • Mobile Upload</text>
+    <text x="850" y="1389" fill="#5F6368" font-size="26">⋮</text>
+
+    <line x1="210" y1="1525" x2="870" y2="1525" stroke="#DADCE0" stroke-width="2"/>
+    <circle cx="250" cy="1490" r="18" fill="#FEF7E0" stroke="#000000" stroke-width="1.5"/>
+    <path d="M250 1479C244 1479 239 1484 239 1490C239 1496 244 1501 250 1501C256 1501 261 1496 261 1490V1486" stroke="#F9AB00" stroke-width="3.5" stroke-linecap="round"/>
+    <text x="290" y="1483" fill="#202124" font-size="24">meeting_capture.wav</text>
+    <text x="290" y="1511" fill="#5F6368" font-size="17">48 MB • Apr 24 • Synced from Mac</text>
+    <text x="850" y="1499" fill="#5F6368" font-size="26">⋮</text>
+  </g>
+
+  <rect x="698" y="1325" width="190" height="120" fill="#FFFFFF" stroke="#000000" stroke-width="6"/>
+  <g font-family="Roboto, Arial, sans-serif" font-weight="700" fill="#202124">
+    <path d="M726 1362H744V1380H726Z" fill="#1A73E8" stroke="#000000" stroke-width="1.5"/>
+    <path d="M735 1354V1388M718 1371H752" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/>
+    <text x="770" y="1378" font-size="20">upload file</text>
+
+    <path d="M726 1415H744V1433H726Z" fill="#34A853" stroke="#000000" stroke-width="1.5"/>
+    <path d="M730 1424H740M735 1419V1429" stroke="#FFFFFF" stroke-width="3" stroke-linecap="round"/>
+    <text x="781" y="1431" font-size="20">sync all</text>
+  </g>
+
+  <circle cx="855" cy="1585" r="38" fill="#1A73E8" stroke="#000000" stroke-width="4"/>
+  <path d="M855 1568V1602M838 1585H872" stroke="#FFFFFF" stroke-width="7" stroke-linecap="round"/>
+
+  <rect x="170" y="1840" width="740" height="150" fill="#FFFFFF" stroke="#000000" stroke-width="3"/>
+  <g font-family="Roboto, Arial, sans-serif" text-anchor="middle">
+    <g>
+      <path d="M246 1910H284V1942H246Z" fill="#1A73E8" stroke="#000000" stroke-width="2"/>
+      <text x="265" y="1970" fill="#1A73E8" font-size="20" font-weight="500">All files</text>
+    </g>
+    <g>
+      <rect x="430" y="1912" width="18" height="18" rx="3" fill="#5F6368" stroke="#000000" stroke-width="2"/>
+      <polygon points="437,1915 437,1927 446,1921" fill="#FFFFFF"/>
+      <text x="439" y="1970" fill="#5F6368" font-size="20">Videos</text>
+    </g>
+    <g>
+      <rect x="616" y="1912" width="22" height="16" rx="3" fill="#5F6368" stroke="#000000" stroke-width="2"/>
+      <circle cx="623" cy="1918" r="2.5" fill="#FFFFFF"/>
+      <path d="M618 1927L623 1921L627 1924L632 1919L637 1927H618Z" fill="#FFFFFF"/>
+      <text x="627" y="1970" fill="#5F6368" font-size="20">Photos</text>
+    </g>
+    <g>
+      <path d="M804 1910H826V1936H804Z" fill="#5F6368" stroke="#000000" stroke-width="2"/>
+      <path d="M819 1910V1918H826" stroke="#FFFFFF" stroke-width="2"/>
+      <text x="815" y="1970" fill="#5F6368" font-size="20">Files</text>
+    </g>
+  </g>
+</svg>

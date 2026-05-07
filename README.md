@@ -19,7 +19,7 @@
 
 ## 🎯 What is TeleDrive?
 
-TeleDrive is a **native Android app** that turns Telegram into your personal cloud storage. Upload, organize, and access your files anywhere—all for **free**, with **unlimited storage**, and **military-grade encryption**.
+TeleDrive is a **native Android app** that turns Telegram into your personal cloud storage. Upload, organize, and access your files anywhere—all for **free**, with **unlimited storage**, and **strong encryption**.
 
 Your **Saved Messages** becomes your root drive. Your **private channels** become folders. It's that simple.
 
@@ -52,12 +52,12 @@ Your **Saved Messages** becomes your root drive. Your **private channels** becom
 - Leverage Telegram's free infrastructure
 - Save $120+ per year compared to paid cloud services
 
-### 🔒 **Military-Grade Security**
-- **Master password protection** with Argon2 hashing
-- **SQLCipher database encryption** for local storage
-- **Libsodium cryptography** for secure operations
+### 🔒 **Strong Security**
+- **Master password protection** with Argon2id hashing (OWASP recommended)
+- **AES-256 database encryption** via SQLCipher
+- **XChaCha20-Poly1305** encryption via Libsodium
 - **Biometric authentication** (fingerprint/face unlock)
-- **Encrypted preferences** for API credentials
+- **AES-256-GCM encrypted preferences** for API credentials
 
 ### ⚡ **Lightning Fast**
 - Native Android performance with Kotlin

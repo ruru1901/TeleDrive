@@ -6,12 +6,13 @@ import androidx.lifecycle.viewModelScope
 import com.teledrive.android.secure.SecureSettings
 import com.teledrive.android.telegram.AuthState
 import com.teledrive.android.telegram.TelegramGateway
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -39,6 +40,16 @@ class AuthViewModel(
             withContext(Dispatchers.IO) { secureSettings.apiCredentials() }?.let { credentials ->
                 runStep {
                     gateway.configure(credentials.apiId, credentials.apiHash)
+                }
+            }
+        }
+
+        viewModelScope.launch {
+            gateway.authState.collectLatest { state ->
+                if (state == AuthState.Ready) {
+                    withContext(Dispatchers.IO) {
+                        secureSettings.setHasCompletedLogin(true)
+                    }
                 }
             }
         }

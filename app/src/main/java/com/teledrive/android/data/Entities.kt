@@ -1,6 +1,9 @@
 package com.teledrive.android.data
 
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.Stable
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
 @Entity(tableName = "folders")
@@ -11,7 +14,14 @@ data class FolderEntity(
     val updatedAt: Long,
 )
 
-@Entity(tableName = "files")
+@Stable
+@Entity(
+    tableName = "files",
+    indices = [
+        Index(value = ["folderId", "createdAt"]),
+        Index(value = ["createdAt"]),
+    ],
+)
 data class FileEntity(
     @PrimaryKey val messageId: Long,
     val folderId: Long?,
@@ -22,6 +32,11 @@ data class FileEntity(
     val createdAt: Long,
     val localCachePath: String?,
     val thumbnailBase64: String? = null,
+    val tdFileId: Int? = null,
+    val tdRemoteUniqueId: String? = null,
+    val tdThumbnailFileId: Int? = null,
+    val tdThumbnailLocalPath: String? = null,
+    val caption: String? = null,
     val syncStatus: SyncStatus = SyncStatus.Synced,
     val backupSourcePath: String? = null,
 )
@@ -67,6 +82,9 @@ data class BackupSettingsEntity(
         BackupFolder.Camera,
         BackupFolder.Screenshots,
         BackupFolder.Downloads,
+        BackupFolder.WhatsAppImages,
+        BackupFolder.WhatsAppVideo,
+        BackupFolder.Documents,
     ),
     val wifiOnly: Boolean = true,
     val chargingOnly: Boolean = false,
@@ -92,5 +110,26 @@ enum class BackupFolder(val label: String) {
     WhatsAppImages("WhatsApp Images"),
     WhatsAppVideo("WhatsApp Video"),
     Documents("Documents"),
-    CustomFolder("Custom folder"),
 }
+
+@Stable
+@Entity(
+    tableName = "preview_cache",
+    indices = [
+        Index(value = ["updatedAt"]),
+    ],
+)
+data class PreviewCacheEntity(
+    @PrimaryKey val cacheKey: String,
+    val thumbnailLocalPath: String? = null,
+    val thumbnailReady: Boolean = false,
+    /** thumbnail | badge | text_snippet | mixed */
+    val previewKind: String = "badge",
+    val badgeExt: String? = null,
+    val badgeColor: Int? = null,
+    val textSnippet: String? = null,
+    val snippetBytes: Int? = null,
+    val mimeType: String? = null,
+    val sourceFileName: String? = null,
+    val updatedAt: Long = System.currentTimeMillis(),
+)

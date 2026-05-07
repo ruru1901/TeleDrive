@@ -13,9 +13,14 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
@@ -53,6 +58,17 @@ class TdLibTelegramGateway(
 
     private var isAuthorized = false
     private var isConnectionReady = false
+
+    private data class FileState(
+        val fileId: Int,
+        val localPath: String? = null,
+        val downloadedSize: Long = 0L,
+        val expectedSize: Long = 0L,
+        val isCompleted: Boolean = false,
+    )
+
+    private val fileStates = mutableMapOf<Int, MutableStateFlow<FileState>>()
+    private val fileStatesLock = Any()
 
     override suspend fun configure(apiId: Int, apiHash: String) {
         require(apiId > 0) { "API ID must be positive." }
@@ -172,9 +188,11 @@ class TdLibTelegramGateway(
         reflection.setIfPresent(function, "onlyLocal", false)
 
         val messages = reflection.field(send(function), "messages") as? Array<*> ?: return emptyList()
-        return messages.mapNotNull { message ->
+        val mapped = messages.mapNotNull { message ->
             if (message == null) null else messageToFile(message, folderId)
         }
+        // Thumbnail downloads are now handled asynchronously by the ViewModel.
+        return mapped
     }
 
     override suspend fun searchFiles(query: String): List<TelegramFile> {
@@ -185,7 +203,12 @@ class TdLibTelegramGateway(
         return (rootFiles + folderFiles).filter { it.name.contains(query, ignoreCase = true) }
     }
 
-    override fun uploadFile(source: Uri, displayName: String, folderId: Long?): Flow<TransferProgress> = flow {
+    override fun uploadFile(
+        source: Uri,
+        displayName: String,
+        folderId: Long?,
+        backupPath: String?,
+    ): Flow<TransferProgress> = flow {
         emit(TransferProgress(0))
         ensureReady()
         val file = copyUriToUploadCache(source, displayName)
@@ -194,8 +217,13 @@ class TdLibTelegramGateway(
         val localFile = reflection.newObject("InputFileLocal").also {
             reflection.setIfPresent(it, "path", file.absolutePath)
         }
+        val captionText = if (backupPath != null) {
+            "backup/$backupPath"
+        } else {
+            metadataCaption(displayName, file.length(), context.contentResolver.getType(source))
+        }
         val caption = reflection.newObject("FormattedText").also {
-            reflection.setIfPresent(it, "text", metadataCaption(displayName))
+            reflection.setIfPresent(it, "text", captionText)
             reflection.setIfPresent(it, "entities", emptyArray<Any>())
         }
         val content = reflection.newObject("InputMessageDocument").also {
@@ -213,8 +241,13 @@ class TdLibTelegramGateway(
             reflection.setIfPresent(it, "inputMessageContent", content)
         }
 
-        send(function)
-        emit(TransferProgress(progress = 100, done = true))
+        val sentMessage = send(function)
+        val messageId = reflection.longField(sentMessage, "id") ?: 0L
+        emit(TransferProgress(progress = 10, messageId = messageId))
+        waitForUploadCompletion(sentMessage, file.length()).collect { progress ->
+            emit(progress.copy(messageId = messageId))
+        }
+        emit(TransferProgress(progress = 100, done = true, messageId = messageId))
     }
 
     override fun downloadFile(messageId: Long, folderId: Long?): Flow<TransferProgress> = flow {
@@ -247,12 +280,16 @@ class TdLibTelegramGateway(
             requestDownload(fileId)
             val deadline = System.currentTimeMillis() + 120_000
             var lastProgress = 10
-            var latestFile = rawFile
             var resetStaleLocalFile = false
+            var lastPollAt = 0L
+
             while (System.currentTimeMillis() < deadline) {
-                latestFile = getFile(fileId) ?: latestFile
-                val path = localPath(latestFile)
-                if (!resetStaleLocalFile && isLocalDownloadComplete(latestFile) && path != null && !File(path).exists()) {
+                val state = observeFileState(fileId).value
+                val path = state.localPath
+                val expectedSize = state.expectedSize.takeIf { it > 0 } ?: fileInfo.size
+                val downloadedSize = state.downloadedSize
+
+                if (!resetStaleLocalFile && state.isCompleted && path != null && !File(path).exists()) {
                     resetStaleLocalFile = true
                     resetLocalFile(fileId)
                     requestDownload(fileId)
@@ -260,8 +297,7 @@ class TdLibTelegramGateway(
                     delay(500)
                     continue
                 }
-                val expectedSize = fileSize(latestFile).takeIf { it > 0 } ?: fileInfo.size
-                val downloadedSize = localDownloadedSize(latestFile)
+
                 val nextProgress = if (expectedSize > 0) {
                     (10 + ((downloadedSize.coerceAtMost(expectedSize) * 70) / expectedSize)).toInt()
                         .coerceIn(10, 80)
@@ -270,15 +306,39 @@ class TdLibTelegramGateway(
                 }
                 if (nextProgress > lastProgress) {
                     lastProgress = nextProgress
-                    emit(TransferProgress(progress = lastProgress))
+                    emit(
+                        TransferProgress(
+                            progress = lastProgress,
+                            localPath = path,
+                            downloadedBytes = downloadedSize,
+                            totalBytes = expectedSize.takeIf { it > 0 },
+                        ),
+                    )
                 }
-                if (isLocalDownloadComplete(latestFile) && path != null && File(path).exists()) {
-                    emit(TransferProgress(progress = 80))
+
+                if (state.isCompleted && path != null && File(path).exists()) {
+                    emit(
+                        TransferProgress(
+                            progress = 80,
+                            localPath = path,
+                            downloadedBytes = downloadedSize,
+                            totalBytes = expectedSize.takeIf { it > 0 },
+                        ),
+                    )
                     break
                 }
+
+                // Fallback: if UpdateFile updates are not arriving, poll periodically.
+                val now = System.currentTimeMillis()
+                if (now - lastPollAt > 2_000) {
+                    lastPollAt = now
+                    runCatching { getFile(fileId)?.let(::handleFileUpdate) }
+                }
+
                 delay(500)
             }
-            localPath(latestFile)?.takeIf { File(it).exists() }
+
+            awaitDownloadPath(fileId, timeoutMs = 2_000)
                 ?: getMessage(chatId, messageId)
                     ?.let(::messageRawFile)
                     ?.let(::localPath)
@@ -353,6 +413,74 @@ class TdLibTelegramGateway(
             reflection.field(update, "authorizationState")?.let(::handleAuthorizationState)
         } else if (name == "UpdateConnectionState") {
             reflection.field(update, "state")?.let(::handleConnectionState)
+        } else if (name == "UpdateFile") {
+            reflection.field(update, "file")?.let(::handleFileUpdate)
+        }
+    }
+
+    private fun handleFileUpdate(file: Any) {
+        val fileId = reflection.intField(file, "id") ?: return
+        val expectedSize = fileSize(file)
+        val localPath = localPath(file)
+        val downloadedSize = localDownloadedSize(file)
+        val isCompleted = isLocalDownloadComplete(file)
+
+        val state = FileState(
+            fileId = fileId,
+            localPath = localPath,
+            downloadedSize = downloadedSize,
+            expectedSize = expectedSize,
+            isCompleted = isCompleted,
+        )
+        flowForFile(fileId).value = state
+    }
+
+    private fun flowForFile(fileId: Int): MutableStateFlow<FileState> {
+        synchronized(fileStatesLock) {
+            return fileStates.getOrPut(fileId) { MutableStateFlow(FileState(fileId = fileId)) }
+        }
+    }
+
+    private fun observeFileState(fileId: Int): StateFlow<FileState> =
+        flowForFile(fileId).asStateFlow()
+
+    private suspend fun awaitDownloadPath(
+        fileId: Int,
+        timeoutMs: Long = 120_000,
+    ): String? {
+        // Prime state once in case no updates arrive promptly.
+        runCatching { getFile(fileId)?.let(::handleFileUpdate) }
+        return withTimeoutOrNull(timeoutMs) {
+            observeFileState(fileId)
+                .map { it.localPath }
+                .filterNotNull()
+                .filter { it.isNotBlank() && File(it).exists() }
+                .first()
+        }
+    }
+
+    private suspend fun awaitDownloadedBytes(
+        fileId: Int,
+        minBytes: Long,
+        timeoutMs: Long = 120_000,
+    ): FileState? {
+        runCatching { getFile(fileId)?.let(::handleFileUpdate) }
+        return withTimeoutOrNull(timeoutMs) {
+            observeFileState(fileId)
+                .filter { it.downloadedSize >= minBytes || it.isCompleted }
+                .first()
+        }
+    }
+
+    private suspend fun awaitDownloadCompletion(
+        fileId: Int,
+        timeoutMs: Long = 6 * 60 * 60 * 1000L,
+    ): FileState? {
+        runCatching { getFile(fileId)?.let(::handleFileUpdate) }
+        return withTimeoutOrNull(timeoutMs) {
+            observeFileState(fileId)
+                .filter { it.isCompleted }
+                .first()
         }
     }
 
@@ -562,7 +690,7 @@ class TdLibTelegramGateway(
             })
         }.getOrNull()
 
-    private suspend fun requestDownload(fileId: Int) {
+    internal suspend fun requestDownload(fileId: Int) {
         send(reflection.newFunction("DownloadFile").also {
             reflection.setIfPresent(it, "fileId", fileId)
             reflection.setIfPresent(it, "priority", 32)
@@ -570,6 +698,13 @@ class TdLibTelegramGateway(
             reflection.setIfPresent(it, "limit", 0L)
             reflection.setIfPresent(it, "synchronous", false)
         })
+    }
+
+    override suspend fun downloadThumbnail(thumbFileId: Int): String? {
+        return runCatching {
+            requestDownload(thumbFileId)
+            awaitDownloadPath(thumbFileId, timeoutMs = 15000)
+        }.getOrNull()
     }
 
     private suspend fun resetLocalFile(fileId: Int) {
@@ -580,34 +715,89 @@ class TdLibTelegramGateway(
         }
     }
 
+    private fun waitForUploadCompletion(message: Any, sourceSize: Long): Flow<TransferProgress> = flow {
+        val initialFile = messageRawFile(message) ?: return@flow
+        val fileId = reflection.intField(initialFile, "id")
+        val deadline = System.currentTimeMillis() + 6 * 60 * 60 * 1000L
+        var lastProgress = 10
+        var currentFile = initialFile
+
+        while (System.currentTimeMillis() < deadline) {
+            if (fileId != null) {
+                currentFile = getFile(fileId) ?: currentFile
+            }
+            val remote = reflection.field(currentFile, "remote")
+            val uploadedSize = remote?.let { reflection.longField(it, "uploadedSize") } ?: 0L
+            val isComplete = remote?.let { reflection.booleanField(it, "isUploadingCompleted") } == true
+            val isActive = remote?.let { reflection.booleanField(it, "isUploadingActive") } == true
+            val nextProgress = if (sourceSize > 0 && uploadedSize > 0) {
+                (10 + ((uploadedSize.coerceAtMost(sourceSize) * 85) / sourceSize)).toInt().coerceIn(10, 95)
+            } else if (isActive) {
+                (lastProgress + 1).coerceAtMost(95)
+            } else {
+                lastProgress
+            }
+
+            if (nextProgress > lastProgress) {
+                lastProgress = nextProgress
+                emit(TransferProgress(progress = lastProgress))
+            }
+            if (isComplete || (sourceSize > 0 && uploadedSize >= sourceSize)) {
+                emit(TransferProgress(progress = 98))
+                return@flow
+            }
+            delay(500)
+        }
+
+        emit(TransferProgress(progress = lastProgress.coerceAtLeast(95)))
+    }
+
     private fun messageToFile(message: Any, folderId: Long?): TelegramFile? {
         val messageId = reflection.longField(message, "id") ?: return null
         val dateSeconds = reflection.intField(message, "date") ?: 0
         val content = reflection.field(message, "content") ?: return null
         val media = extractMedia(content) ?: return null
-        val captionName = captionFileName(content)
+        val captionMetadata = captionMetadata(content)
+        val resolvedName = captionMetadata?.name ?: media.name.ifBlank { defaultName(content, messageId) }
+        val rawFile = messageRawFile(message)
+        val tdFileId = rawFile?.let { reflection.intField(it, "id") }
+        val remote = rawFile?.let { reflection.field(it, "remote") }
+        val tdRemoteUniqueId = remote?.let { reflection.stringField(it, "uniqueId") }?.takeIf { it.isNotBlank() }
         return TelegramFile(
             messageId = messageId,
             folderId = folderId,
-            name = captionName ?: media.name.ifBlank { defaultName(content, messageId) },
-            size = media.size,
-            mimeType = media.mimeType,
-            extension = media.name.substringAfterLast('.', missingDelimiterValue = "").ifBlank { null },
+            name = resolvedName,
+            size = captionMetadata?.size?.takeIf { it > 0 } ?: media.size,
+            mimeType = captionMetadata?.mimeType ?: media.mimeType,
+            extension = resolvedName.substringAfterLast('.', missingDelimiterValue = "").ifBlank { null },
             createdAt = dateSeconds * 1000L,
             localCachePath = media.localPath,
             thumbnailBase64 = media.thumbnailBase64,
+            tdFileId = tdFileId,
+            tdRemoteUniqueId = tdRemoteUniqueId,
+            tdThumbnailFileId = media.thumbnailFileId,
+            tdThumbnailLocalPath = media.thumbnailLocalPath,
         )
     }
 
-    private fun metadataCaption(displayName: String): String =
-        JSONObject().put(CAPTION_FILE_NAME_KEY, displayName.ifBlank { "Uploaded file" }).toString()
+    private fun metadataCaption(displayName: String, size: Long, mimeType: String?): String =
+        JSONObject()
+            .put(CAPTION_FILE_NAME_KEY, displayName.ifBlank { "Uploaded file" })
+            .put(CAPTION_SIZE_KEY, size)
+            .put(CAPTION_MIME_TYPE_KEY, mimeType.orEmpty())
+            .toString()
 
-    private fun captionFileName(content: Any): String? {
+    private fun captionMetadata(content: Any): StoredMetadata? {
         val caption = reflection.field(content, "caption") ?: return null
         val text = reflection.stringField(caption, "text")?.trim().orEmpty()
         if (text.isBlank()) return null
         return runCatching {
-            JSONObject(text).optString(CAPTION_FILE_NAME_KEY).takeIf { it.isNotBlank() }
+            val json = JSONObject(text)
+            StoredMetadata(
+                name = json.optString(CAPTION_FILE_NAME_KEY).takeIf { it.isNotBlank() },
+                size = json.optLong(CAPTION_SIZE_KEY).takeIf { it > 0 },
+                mimeType = json.optString(CAPTION_MIME_TYPE_KEY).takeIf { it.isNotBlank() },
+            ).takeIf { it.name != null || it.size != null || it.mimeType != null }
         }.getOrNull()
     }
 
@@ -626,6 +816,7 @@ class TdLibTelegramGateway(
         val minithumbnail = reflection.field(media, "minithumbnail")
         val thumbnailData = minithumbnail?.let { reflection.field(it, "data") as? ByteArray }
         val thumbnailBase64 = thumbnailData?.let { android.util.Base64.encodeToString(it, android.util.Base64.NO_WRAP) }
+        val (thumbnailFileId, thumbnailLocalPath) = extractThumbnailFile(media)
 
         if (contentName == "MessagePhoto") {
             val sizes = reflection.field(media, "sizes") as? Array<*> ?: emptyArray<Any>()
@@ -637,6 +828,8 @@ class TdLibTelegramGateway(
                 mimeType = "image/jpeg",
                 localPath = localPath(file),
                 thumbnailBase64 = thumbnailBase64,
+                thumbnailFileId = thumbnailFileId,
+                thumbnailLocalPath = thumbnailLocalPath,
             )
         }
         val file = when (contentName) {
@@ -652,7 +845,19 @@ class TdLibTelegramGateway(
             mimeType = reflection.stringField(media, "mimeType"),
             localPath = localPath(file),
             thumbnailBase64 = thumbnailBase64,
+            thumbnailFileId = thumbnailFileId,
+            thumbnailLocalPath = thumbnailLocalPath,
         )
+    }
+
+    private fun extractThumbnailFile(media: Any): Pair<Int?, String?> {
+        // Many TDLib media objects contain a `thumbnail` object with a nested `file`.
+        // We keep this best-effort (reflection-based) and fall back to minithumbnail.
+        val thumb = reflection.field(media, "thumbnail") ?: return null to null
+        val file = reflection.field(thumb, "file") ?: return null to null
+        val id = reflection.intField(file, "id")
+        val path = localPath(file)?.takeIf { File(it).exists() }
+        return id to path
     }
 
     private fun messageFileId(message: Any): Int? {
@@ -805,13 +1010,104 @@ class TdLibTelegramGateway(
         val mimeType: String?,
         val localPath: String?,
         val thumbnailBase64: String?,
+        val thumbnailFileId: Int?,
+        val thumbnailLocalPath: String?,
     )
+
+    private data class StoredMetadata(
+        val name: String?,
+        val size: Long?,
+        val mimeType: String?,
+    )
+
+    // Backup-specific operations
+    override suspend fun sendMessage(text: String, folderId: Long?): Long {
+        ensureReady()
+        val chatId = resolveChatId(folderId)
+        val formattedText = reflection.newObject("FormattedText").also {
+            reflection.setIfPresent(it, "text", text)
+            reflection.setIfPresent(it, "entities", emptyArray<Any>())
+        }
+        val function = reflection.newFunction("SendMessage").also {
+            reflection.setIfPresent(it, "chatId", chatId)
+            reflection.setIfPresent(it, "messageThreadId", 0L)
+            reflection.setIfPresent(it, "replyTo", null)
+            reflection.setIfPresent(it, "options", null)
+            reflection.setIfPresent(it, "replyMarkup", null)
+            reflection.setIfPresent(it, "inputMessageContent", reflection.newObject("InputMessageText").also {
+                reflection.setIfPresent(it, "text", formattedText)
+                reflection.setIfPresent(it, "disableWebPagePreview", true)
+                reflection.setIfPresent(it, "clearDraft", false)
+            })
+        }
+        val result = send(function)
+        return reflection.longField(result, "id") ?: error("Failed to send message")
+    }
+
+    override suspend fun editMessage(messageId: Long, text: String, folderId: Long?) {
+        ensureReady()
+        val chatId = resolveChatId(folderId)
+        val formattedText = reflection.newObject("FormattedText").also {
+            reflection.setIfPresent(it, "text", text)
+            reflection.setIfPresent(it, "entities", emptyArray<Any>())
+        }
+        send(reflection.newFunction("EditMessageText").also {
+            reflection.setIfPresent(it, "chatId", chatId)
+            reflection.setIfPresent(it, "messageId", messageId)
+            reflection.setIfPresent(it, "text", formattedText)
+            reflection.setIfPresent(it, "disableWebPagePreview", true)
+        })
+    }
+
+    override suspend fun pinMessage(messageId: Long, folderId: Long?) {
+        ensureReady()
+        val chatId = resolveChatId(folderId)
+        send(reflection.newFunction("PinChatMessage").also {
+            reflection.setIfPresent(it, "chatId", chatId)
+            reflection.setIfPresent(it, "messageId", messageId)
+            reflection.setIfPresent(it, "disableNotification", false)
+        })
+    }
+
+    override suspend fun unpinMessage(messageId: Long, folderId: Long?) {
+        ensureReady()
+        val chatId = resolveChatId(folderId)
+        send(reflection.newFunction("UnpinChatMessage").also {
+            reflection.setIfPresent(it, "chatId", chatId)
+            reflection.setIfPresent(it, "messageId", messageId)
+        })
+    }
+
+    override suspend fun getPinnedMessages(folderId: Long?): List<Long> {
+        ensureReady()
+        val chatId = resolveChatId(folderId)
+        val result = send(reflection.newFunction("GetChatPinnedMessages").also {
+            reflection.setIfPresent(it, "chatId", chatId)
+        })
+        val messages = reflection.field(result, "messages") as? Array<*> ?: return emptyList()
+        return messages.mapNotNull { msg ->
+            reflection.longField(msg as? Any ?: return@mapNotNull null, "id")
+        }
+    }
+
+    override suspend fun getMessage(messageId: Long, folderId: Long?): Any? {
+        ensureReady()
+        val chatId = resolveChatId(folderId)
+        return runCatching {
+            send(reflection.newFunction("GetMessage").also {
+                reflection.setIfPresent(it, "chatId", chatId)
+                reflection.setIfPresent(it, "messageId", messageId)
+            })
+        }.getOrNull()
+    }
 
     companion object {
         private const val KEY_DOWNLOAD_TREE_URI = "tree_uri"
         private const val KEY_DOWNLOAD_TREE_LABEL = "tree_label"
         private const val DEFAULT_DOWNLOAD_LABEL = "Downloads/TeleDrive"
         private const val CAPTION_FILE_NAME_KEY = "td_name"
+        private const val CAPTION_SIZE_KEY = "td_size"
+        private const val CAPTION_MIME_TYPE_KEY = "td_mime"
 
         fun isAvailable(): Boolean =
             TdLibReflection.availableOrNull() != null

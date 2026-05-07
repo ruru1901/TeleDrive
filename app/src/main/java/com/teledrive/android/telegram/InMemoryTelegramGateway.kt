@@ -132,16 +132,22 @@ class InMemoryTelegramGateway(
         return files.filter { it.name.contains(query, ignoreCase = true) }
     }
 
-    override fun uploadFile(source: Uri, displayName: String, folderId: Long?): Flow<TransferProgress> = flow {
+    override fun uploadFile(
+        source: Uri,
+        displayName: String,
+        folderId: Long?,
+        backupPath: String?,
+    ): Flow<TransferProgress> = flow {
         for (percent in 0..100 step 10) {
             delay(80)
             emit(TransferProgress(percent))
         }
         val copied = copyUriToCache(source, displayName)
         val mime = context.contentResolver.getType(source) ?: guessMime(displayName)
+        val messageId = ids.incrementAndGet()
         files.add(
             TelegramFile(
-                messageId = ids.incrementAndGet(),
+                messageId = messageId,
                 folderId = folderId,
                 name = displayName.ifBlank { source.lastPathSegment ?: "Uploaded file" },
                 size = copied.length(),
@@ -152,7 +158,7 @@ class InMemoryTelegramGateway(
                 thumbnailBase64 = if ((mime ?: "").startsWith("image/")) createThumbnailBase64(copied) else null,
             ),
         )
-        emit(TransferProgress(progress = 100, done = true))
+        emit(TransferProgress(progress = 100, done = true, messageId = messageId))
     }
 
     override fun downloadFile(messageId: Long, folderId: Long?): Flow<TransferProgress> = flow {
@@ -185,6 +191,8 @@ class InMemoryTelegramGateway(
         _downloadDestinationLabel.value = "Downloads/TeleDrive"
     }
 
+    override suspend fun downloadThumbnail(thumbFileId: Int): String? = null
+
     override suspend fun deleteFiles(messageIds: List<Long>, folderId: Long?) {
         delay(150)
         files.removeAll { it.messageId in messageIds && it.folderId == folderId }
@@ -195,6 +203,34 @@ class InMemoryTelegramGateway(
         val moved = files.filter { it.messageId in messageIds && it.folderId == sourceFolderId }
         files.removeAll { it.messageId in messageIds && it.folderId == sourceFolderId }
         files.addAll(moved.map { it.copy(folderId = targetFolderId, messageId = ids.incrementAndGet()) })
+    }
+
+    override suspend fun sendMessage(text: String, folderId: Long?): Long {
+        delay(100)
+        val id = ids.incrementAndGet()
+        return id
+    }
+
+    override suspend fun editMessage(messageId: Long, text: String, folderId: Long?) {
+        delay(100)
+    }
+
+    override suspend fun pinMessage(messageId: Long, folderId: Long?) {
+        delay(100)
+    }
+
+    override suspend fun unpinMessage(messageId: Long, folderId: Long?) {
+        delay(100)
+    }
+
+    override suspend fun getPinnedMessages(folderId: Long?): List<Long> {
+        delay(100)
+        return emptyList()
+    }
+
+    override suspend fun getMessage(messageId: Long, folderId: Long?): Any? {
+        delay(50)
+        return null
     }
 
     private fun copyUriToCache(uri: Uri, displayName: String): File {

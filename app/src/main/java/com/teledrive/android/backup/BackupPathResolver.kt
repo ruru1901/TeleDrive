@@ -5,6 +5,8 @@ import com.teledrive.android.data.BackupFolder
 import java.io.File
 
 object BackupPathResolver {
+    fun getStorageRoot(): File = externalStorageDirectory()
+    
     fun getPathForFolder(folder: BackupFolder): File? {
         return when (folder) {
             BackupFolder.Camera -> File(publicDirectory(DIRECTORY_DCIM), "Camera")
@@ -16,7 +18,6 @@ object BackupPathResolver {
             BackupFolder.WhatsAppImages -> File(externalStorageDirectory(), "Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Images")
             BackupFolder.WhatsAppVideo -> File(externalStorageDirectory(), "Android/media/com.whatsapp/WhatsApp/Media/WhatsApp Video")
             BackupFolder.Documents -> publicDirectory(DIRECTORY_DOCUMENTS)
-            BackupFolder.CustomFolder -> null // Managed via picker in the future
         }
     }
 

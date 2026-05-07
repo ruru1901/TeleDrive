@@ -1,77 +1,56 @@
 package com.teledrive.android
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.runtime.*
 import com.teledrive.android.ui.TeleDriveApp
-import com.teledrive.android.ui.TeleDriveTheme
-import com.teledrive.android.ui.auth.AuthViewModel
 import com.teledrive.android.ui.auth.AuthViewModelFactory
-import com.teledrive.android.ui.drive.DriveViewModel
 import com.teledrive.android.ui.drive.DriveViewModelFactory
+import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.teledrive.android.secure.SecureSettings
 
-class MainActivity : ComponentActivity() {
+class MainActivity : AppCompatActivity() {
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
 
-        setContent {
-            val app = application
+        val composeContainer = findViewById<android.widget.FrameLayout>(R.id.composeContainer)
+        val app = application
+        val secureSettings = SecureSettings(app)
+
+        ComposeView(this).also { composeContainer.addView(it) }.setContent {
             var container by remember { mutableStateOf(AppContainer.cachedOrNull()) }
+            var darkMode by remember { mutableStateOf(secureSettings.getDarkMode()) }
 
             LaunchedEffect(Unit) {
                 if (container == null) {
-                    container = withContext(Dispatchers.IO) {
-                        AppContainer.create(app)
-                    }
+                    container = withContext(Dispatchers.IO) { AppContainer.create(app) }
                 }
             }
 
-            val readyContainer = container
-            if (readyContainer == null) {
-                TeleDriveTheme(darkMode = true) {
-                    Surface(
-                        modifier = Modifier.fillMaxSize(),
-                        color = MaterialTheme.colorScheme.background,
-                    ) {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator()
-                        }
-                    }
-                }
-            } else {
-                val authViewModel: AuthViewModel = viewModel(
-                    factory = AuthViewModelFactory(
-                        gateway = readyContainer.telegramGateway,
-                        secureSettings = readyContainer.secureSettings,
-                    ),
-                )
-                val driveViewModel: DriveViewModel = viewModel(
-                    factory = DriveViewModelFactory(
-                        database = readyContainer.database,
-                        gateway = readyContainer.telegramGateway,
-                        backupManager = readyContainer.backupManager,
-                    ),
-                )
-                TeleDriveApp(
-                    authViewModel = authViewModel,
-                    driveViewModel = driveViewModel,
-                )
-            }
+            val ready = container ?: return@setContent
+
+            val authViewModel: com.teledrive.android.ui.auth.AuthViewModel = viewModel(
+                factory = AuthViewModelFactory(ready.telegramGateway, ready.secureSettings)
+            )
+            val driveViewModel: com.teledrive.android.ui.drive.DriveViewModel = viewModel(
+                factory = DriveViewModelFactory(ready.database, ready.telegramGateway, ready.backupManager, ready.secureSettings, app)
+            )
+
+            TeleDriveApp(
+                authViewModel = authViewModel,
+                driveViewModel = driveViewModel,
+                hasCompletedLogin = ready.secureSettings.hasCompletedLogin(),
+                darkMode = darkMode,
+                onToggleTheme = {
+                    darkMode = !darkMode
+                    secureSettings.setDarkMode(darkMode)
+                },
+            )
         }
     }
 }

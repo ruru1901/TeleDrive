@@ -24,6 +24,10 @@ fun TelegramFile.toEntity(): FileEntity =
         createdAt = createdAt,
         localCachePath = localCachePath,
         thumbnailBase64 = thumbnailBase64,
+        tdFileId = tdFileId,
+        tdRemoteUniqueId = tdRemoteUniqueId,
+        tdThumbnailFileId = tdThumbnailFileId,
+        tdThumbnailLocalPath = tdThumbnailLocalPath,
     )
 
 fun folderDisplayName(rawTitle: String): String =

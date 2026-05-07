@@ -22,6 +22,9 @@ interface TeleDriveDao {
     @Query("SELECT * FROM backup_settings WHERE id = 1")
     fun observeBackupSettings(): Flow<BackupSettingsEntity?>
 
+    @Query("SELECT * FROM preview_cache WHERE cacheKey IN (:keys)")
+    fun observePreviewCache(keys: List<String>): Flow<List<PreviewCacheEntity>>
+
     @Upsert
     suspend fun upsertFolders(folders: List<FolderEntity>)
 
@@ -34,12 +37,30 @@ interface TeleDriveDao {
     @Upsert
     suspend fun upsertBackupSettings(settings: BackupSettingsEntity)
 
+    @Upsert
+    suspend fun upsertPreviewCache(entries: List<PreviewCacheEntity>)
+
+    @Query("DELETE FROM preview_cache WHERE cacheKey IN (:keys)")
+    suspend fun deletePreviewCache(keys: List<String>)
+
+    @Query("DELETE FROM preview_cache WHERE updatedAt < :olderThan")
+    suspend fun prunePreviewCache(olderThan: Long)
+
     @Query("DELETE FROM files WHERE folderId IS :folderId")
     suspend fun clearFilesForFolder(folderId: Long?)
+
+    @Query("DELETE FROM files WHERE folderId IS NULL AND messageId NOT IN (:messageIds)")
+    suspend fun deleteMissingRootFiles(messageIds: List<Long>)
+
+    @Query("DELETE FROM files WHERE folderId = :folderId AND messageId NOT IN (:messageIds)")
+    suspend fun deleteMissingFilesInFolder(folderId: Long, messageIds: List<Long>)
 
     @Query("DELETE FROM folders WHERE id = :folderId")
     suspend fun deleteFolder(folderId: Long)
 
     @Query("DELETE FROM files WHERE messageId IN (:messageIds)")
     suspend fun deleteFiles(messageIds: List<Long>)
+
+    @Query("SELECT * FROM files WHERE messageId = :messageId LIMIT 1")
+    suspend fun getFileByMessageId(messageId: Long): FileEntity?
 }

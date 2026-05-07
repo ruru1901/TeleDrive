@@ -1,12 +1,15 @@
 package com.teledrive.android.ui
 
+import android.content.Context
 import android.content.Intent
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Environment
 import android.os.StatFs
+import android.provider.OpenableColumns
 import android.util.Base64
 import android.widget.Toast
+import androidx.core.content.FileProvider
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -33,7 +36,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import my.nanihadesuka.compose.LazyColumnScrollbar
+import my.nanihadesuka.compose.ScrollbarSelectionMode
+import my.nanihadesuka.compose.ScrollbarSettings
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -120,6 +126,7 @@ import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -130,13 +137,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.graphicsLayer
@@ -145,159 +155,178 @@ import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerInputChange
+import androidx.compose.ui.input.pointer.positionChange
+import kotlin.math.absoluteValue
 import kotlin.math.sin
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInRoot
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import androidx.core.content.FileProvider
-import androidx.media3.common.MediaItem
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.ui.PlayerView
-import coil.compose.AsyncImage
-import com.teledrive.android.data.BackupFolder
-import com.teledrive.android.data.BackupMode
-import com.teledrive.android.data.BackupScope
-import com.teledrive.android.data.BackupSettingsEntity
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.MainScope
+import com.teledrive.android.ui.security.SecuritySettingsFragment
 import com.teledrive.android.data.FileEntity
 import com.teledrive.android.data.FolderEntity
 import com.teledrive.android.data.TransferEntity
-import com.teledrive.android.data.TransferStatus
+import com.teledrive.android.data.BackupSettingsEntity
+import com.teledrive.android.data.PreviewCacheEntity
 import com.teledrive.android.data.SyncStatus
-import com.teledrive.android.telegram.AuthState
-import com.teledrive.android.ui.auth.AuthUiState
+import com.teledrive.android.data.TransferStatus
+import com.teledrive.android.data.BackupFolder
+import com.teledrive.android.data.BackupScope
+import com.teledrive.android.data.BackupMode
 import com.teledrive.android.ui.auth.AuthViewModel
-import com.teledrive.android.ui.drive.DriveUiState
+import com.teledrive.android.ui.auth.AuthUiState
+import com.teledrive.android.telegram.AuthState
 import com.teledrive.android.ui.drive.DriveViewModel
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import com.teledrive.android.ui.drive.DriveUiState
+import com.teledrive.android.ui.drive.FileSort
+import coil.compose.AsyncImage
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.media3.common.MediaItem
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
 import java.io.File
 import java.text.SimpleDateFormat
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.TextStyle
 import java.util.Date
 import java.util.Locale
-import kotlin.math.hypot
+import androidx.compose.runtime.snapshots.SnapshotStateMap
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.viewinterop.AndroidView
+import com.teledrive.android.data.TransferType
 
 @Composable
 fun TeleDriveApp(
     authViewModel: AuthViewModel,
     driveViewModel: DriveViewModel,
+    hasCompletedLogin: Boolean,
+    darkMode: Boolean,
+    onToggleTheme: () -> Unit,
 ) {
-    var darkMode by remember { mutableStateOf(true) }
-    var pendingDarkMode by remember { mutableStateOf<Boolean?>(null) }
-    var themeChangeNonce by remember { mutableStateOf(0) }
-    var themeWaveOrigin by remember { mutableStateOf<Offset?>(null) }
     val authState by authViewModel.uiState.collectAsState()
     val driveState by driveViewModel.uiState.collectAsState()
-    val toggleTheme: () -> Unit = {
-        pendingDarkMode = !(pendingDarkMode ?: darkMode)
-        themeChangeNonce += 1
-    }
 
     TeleDriveTheme(darkMode = darkMode) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            Box(Modifier.fillMaxSize()) {
-                when (authState.authState) {
-                    AuthState.Ready -> DashboardScreen(
-                        state = driveState,
-                        darkMode = darkMode,
-                        onToggleDark = toggleTheme,
-                        onThemeOriginChange = { themeWaveOrigin = it },
-                        onRefresh = driveViewModel::refresh,
-                        onSelectFolder = driveViewModel::selectFolder,
-                        onCreateFolder = driveViewModel::createFolder,
-                        onDeleteFolder = driveViewModel::deleteFolder,
-                        onQueryChange = driveViewModel::setQuery,
-                        onUpload = driveViewModel::upload,
-                        onDownload = driveViewModel::download,
-                        onDownloadTo = driveViewModel::downloadTo,
-                        onDeleteFile = driveViewModel::deleteFile,
-                        onDeleteFiles = driveViewModel::deleteFiles,
-                        onMoveFiles = driveViewModel::moveFiles,
-                        onUpdateBackupSettings = driveViewModel::updateBackupSettings,
-                        onSetDownloadDestination = driveViewModel::setDownloadDestination,
-                        onClearDownloadDestination = driveViewModel::clearDownloadDestination,
-                        onRecordBackupRun = driveViewModel::recordBackupRun,
-                        onRestoreAll = driveViewModel::restoreAllFiles,
-                        onLogout = authViewModel::logout,
-                    )
-                    AuthState.Initializing -> InitializingScreen()
-                    else -> AuthScreen(
-                        state = authState,
-                        darkMode = darkMode,
-                        onToggleDark = toggleTheme,
-                        onThemeOriginChange = { themeWaveOrigin = it },
-                        onSubmitApi = authViewModel::submitApi,
-                        onSubmitPhone = authViewModel::submitPhone,
-                        onSubmitCode = authViewModel::submitCode,
-                        onSubmitPassword = authViewModel::submitPassword,
-                    )
-                }
-                ThemeWaveOverlay(
-                    nonce = themeChangeNonce,
-                    targetDarkMode = pendingDarkMode ?: darkMode,
-                    origin = themeWaveOrigin,
-                    onComplete = {
-                        pendingDarkMode?.let { darkMode = it }
-                        pendingDarkMode = null
-                    },
-                )
-            }
+            TeleDriveContent(
+                authState = authState,
+                driveState = driveState,
+                darkMode = darkMode,
+                authViewModel = authViewModel,
+                driveViewModel = driveViewModel,
+                hasCompletedLogin = hasCompletedLogin,
+                onToggleTheme = onToggleTheme,
+            )
+        }
+    }
+}
+
+
+@Composable
+private fun TeleDriveContent(
+    authState: AuthUiState,
+    driveState: DriveUiState,
+    darkMode: Boolean,
+    authViewModel: AuthViewModel,
+    driveViewModel: DriveViewModel,
+    hasCompletedLogin: Boolean,
+    onToggleTheme: () -> Unit,
+) {
+when (authState.authState) {
+          AuthState.Ready -> DashboardScreen(
+              state = driveState,
+              darkMode = darkMode,
+              onToggleTheme = onToggleTheme,
+              onRefresh = driveViewModel::refresh,
+              onSelectFolder = driveViewModel::selectFolder,
+              onCreateFolder = driveViewModel::createFolder,
+              onDeleteFolder = driveViewModel::deleteFolder,
+              onQueryChange = driveViewModel::setQuery,
+              onUpload = { uri, name, encrypt -> driveViewModel.upload(uri, name, encrypt) },
+              onDownload = driveViewModel::download,
+              onDownloadTo = driveViewModel::downloadTo,
+              onDeleteFile = driveViewModel::deleteFile,
+              onDeleteFiles = driveViewModel::deleteFiles,
+              onMoveFiles = driveViewModel::moveFiles,
+              onUpdateBackupSettings = driveViewModel::updateBackupSettings,
+              onSetDownloadDestination = driveViewModel::setDownloadDestination,
+              onClearDownloadDestination = driveViewModel::clearDownloadDestination,
+              onRecordBackupRun = driveViewModel::recordBackupRun,
+              onRestoreAll = driveViewModel::restoreAllFiles,
+              onLogout = authViewModel::logout,
+              onNavigateToSettings = { /* Open SettingsScreen */ },
+              onNavigateToSecurity = { /* Navigate to Security */ },
+              driveViewModel = driveViewModel,
+          )
+        AuthState.Initializing -> InitializingScreen()
+        else -> if (hasCompletedLogin) {
+            // Already logged in but auth not ready yet, show loading
+            InitializingScreen()
+        } else {
+            AuthScreen(
+                state = authState,
+                darkMode = darkMode,
+                onSubmitApi = authViewModel::submitApi,
+                onSubmitPhone = authViewModel::submitPhone,
+                onSubmitCode = authViewModel::submitCode,
+                onSubmitPassword = authViewModel::submitPassword,
+            )
         }
     }
 }
 
 @Composable
-private fun ThemeWaveOverlay(
-    nonce: Int,
-    targetDarkMode: Boolean,
+private fun ThemeWaveRevealLayer(
+    progress: Float,
     origin: Offset?,
-    onComplete: () -> Unit,
+    content: @Composable () -> Unit,
 ) {
-    val waveProgress = remember { Animatable(0f) }
-    LaunchedEffect(nonce) {
-        if (nonce == 0) return@LaunchedEffect
-        waveProgress.snapTo(0f)
-        waveProgress.animateTo(
-            targetValue = 1f,
-            animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing),
-        )
-        onComplete()
-        waveProgress.animateTo(
-            targetValue = 0f,
-            animationSpec = tween(durationMillis = 200, easing = LinearEasing),
-        )
-    }
-    if (nonce > 0 && waveProgress.value > 0f) {
-        val overlayColor = if (targetDarkMode) Color(0xFF111316) else Color(0xFFFFFFFF)
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val origin = origin ?: Offset(size.width - 32.dp.toPx(), 32.dp.toPx())
-            fun distanceTo(x: Float, y: Float): Float =
-                hypot((x - origin.x).toDouble(), (y - origin.y).toDouble()).toFloat()
-            val maxRadius = maxOf(
-                distanceTo(0f, 0f),
-                distanceTo(size.width, 0f),
-                distanceTo(0f, size.height),
-                distanceTo(size.width, size.height),
-            )
-            drawCircle(
-                color = overlayColor,
-                radius = maxRadius * waveProgress.value,
-                center = origin,
-                alpha = if (waveProgress.value < 1f) 0.94f else 1f,
-            )
-        }
-    }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .drawWithContent {
+            val bias = ((origin?.x ?: (size.width * 0.5f)) / size.width).coerceIn(0f, 1f)
+            val baseY = size.height * progress
+            val startAmplitude = 14.dp.toPx()
+            val endAmplitude = 8.dp.toPx()
+            val amplitude = startAmplitude + (endAmplitude - startAmplitude) * progress
+            val wavelength = size.width * 0.95f
+            val angularFrequency = (2f * Math.PI.toFloat()) / wavelength
+            val phase = progress * (Math.PI.toFloat() * 1.2f) + bias * 0.6f
+            val step = 10.dp.toPx().coerceAtLeast(5f)
+
+            val wavePath = Path().apply {
+                moveTo(0f, 0f)
+                lineTo(0f, (baseY + amplitude * sin(phase)).coerceIn(0f, size.height))
+                var x = 0f
+                while (x <= size.width + step) {
+                    val y = baseY + amplitude * sin((x * angularFrequency) + phase)
+                    lineTo(x, y.coerceIn(0f, size.height))
+                    x += step
+                }
+                lineTo(size.width, 0f)
+                close()
+            }
+            clipPath(wavePath) {
+                this@drawWithContent.drawContent()
+            }
+        },
+    ) { content() }
 }
 
 @Composable
@@ -394,11 +423,20 @@ private data class CountryDial(
 
 @Composable
 private fun InitializingScreen() {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            CircularProgressIndicator(modifier = Modifier.size(48.dp))
-            Text("Connecting to Telegram...", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onBackground)
-        }
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        TeleDriveLogo(markColor = MaterialTheme.colorScheme.primary, modifier = Modifier.size(120.dp))
+        Spacer(Modifier.height(24.dp))
+        Text("TeleDrive", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.height(4.dp))
+        Text("Your Own Ultimate Cloud Drive", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
+        Spacer(Modifier.height(32.dp))
+        CircularProgressIndicator(modifier = Modifier.size(28.dp))
+        Spacer(Modifier.height(8.dp))
+        Text("Connecting...", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f))
     }
 }
 
@@ -406,8 +444,6 @@ private fun InitializingScreen() {
 private fun AuthScreen(
     state: AuthUiState,
     darkMode: Boolean,
-    onToggleDark: () -> Unit,
-    onThemeOriginChange: (Offset) -> Unit,
     onSubmitApi: (String, String) -> Unit,
     onSubmitPhone: (String) -> Unit,
     onSubmitCode: (String) -> Unit,
@@ -421,28 +457,6 @@ private fun AuthScreen(
     var password by remember { mutableStateOf("") }
 
     Box(modifier = Modifier.fillMaxSize().imePadding()) {
-        IconButton(
-            onClick = onToggleDark,
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(8.dp)
-                .onGloballyPositioned { coordinates ->
-                    val position = coordinates.positionInRoot()
-                    onThemeOriginChange(
-                        Offset(
-                            position.x + coordinates.size.width / 2f,
-                            position.y + coordinates.size.height / 2f,
-                        ),
-                    )
-                },
-        ) {
-            Icon(
-                if (darkMode) Icons.Default.WbSunny else Icons.Default.DarkMode,
-                contentDescription = "Toggle dark mode",
-                tint = MaterialTheme.colorScheme.primary,
-            )
-        }
-
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -465,7 +479,7 @@ private fun AuthScreen(
             Spacer(Modifier.height(12.dp))
             Text("TeleDrive", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
             Text(
-                "Your Telegram account as a private drive",
+                "Your Own Ultimate Cloud Drive",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
             )
@@ -538,19 +552,17 @@ private fun AuthScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DashboardScreen(
     state: DriveUiState,
     darkMode: Boolean,
-    onToggleDark: () -> Unit,
-    onThemeOriginChange: (Offset) -> Unit,
+    onToggleTheme: () -> Unit,
     onRefresh: () -> Unit,
     onSelectFolder: (Long?) -> Unit,
     onCreateFolder: (String) -> Unit,
     onDeleteFolder: (Long) -> Unit,
     onQueryChange: (String) -> Unit,
-    onUpload: (Uri, String) -> Unit,
+    onUpload: (Uri, String, Boolean) -> Unit,
     onDownload: (FileEntity) -> Unit,
     onDownloadTo: (FileEntity, Uri) -> Unit,
     onDeleteFile: (FileEntity) -> Unit,
@@ -562,7 +574,245 @@ private fun DashboardScreen(
     onRecordBackupRun: () -> Unit,
     onRestoreAll: () -> Unit,
     onLogout: () -> Unit,
+    onNavigateToSettings: () -> Unit,
+    onNavigateToSecurity: () -> Unit,
+    driveViewModel: DriveViewModel,
 ) {
+    var screenState by remember { mutableStateOf(Screen.Dashboard) }
+    val settingsFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        uri?.let(onSetDownloadDestination)
+    }
+    
+     when (screenState) {
+         Screen.Dashboard -> DashboardScaffold(
+             state = state,
+             darkMode = darkMode,
+             onToggleTheme = onToggleTheme,
+             onRefresh = onRefresh,
+             onSelectFolder = onSelectFolder,
+             onCreateFolder = onCreateFolder,
+             onDeleteFolder = onDeleteFolder,
+             onQueryChange = onQueryChange,
+             onUpload = onUpload,
+             onDownload = onDownload,
+             onDownloadTo = onDownloadTo,
+             onDeleteFile = onDeleteFile,
+             onDeleteFiles = onDeleteFiles,
+             onMoveFiles = onMoveFiles,
+             onUpdateBackupSettings = onUpdateBackupSettings,
+             onSetDownloadDestination = onSetDownloadDestination,
+             onClearDownloadDestination = onClearDownloadDestination,
+             onRecordBackupRun = onRecordBackupRun,
+             onRestoreAll = onRestoreAll,
+             onLogout = onLogout,
+             onNavigateToSettings = { screenState = Screen.Settings },
+             onNavigateToSecurity = { screenState = Screen.Security },
+             driveViewModel = driveViewModel,
+         )
+         Screen.Settings -> SettingsScreen(
+             backupSettings = state.backupSettings,
+             onUpdateBackupSettings = onUpdateBackupSettings,
+             onRunBackupNow = onRecordBackupRun,
+             onRestoreAll = onRestoreAll,
+             onLogout = onLogout,
+             onNavigateBack = { screenState = Screen.Dashboard },
+             downloadDestinationLabel = state.downloadDestinationLabel,
+             onChooseDownloadFolder = { settingsFolderPicker.launch(null) },
+             onClearDownloadFolder = onClearDownloadDestination,
+             onNavigateToSecurity = { screenState = Screen.Security },
+         )
+         Screen.Security -> SecuritySettingsFragment(
+             masterPasswordService = driveViewModel.masterPasswordService,
+             keystoreRepository = driveViewModel.keystoreRepository,
+         )
+     }
+}
+
+private enum class Screen { Dashboard, Settings, Security }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SettingsScreen(
+    backupSettings: BackupSettingsEntity,
+    onUpdateBackupSettings: (BackupSettingsEntity) -> Unit,
+    onRunBackupNow: () -> Unit,
+    onRestoreAll: () -> Unit,
+    onLogout: () -> Unit,
+    onNavigateBack: () -> Unit,
+    downloadDestinationLabel: String,
+    onChooseDownloadFolder: () -> Unit,
+    onClearDownloadFolder: () -> Unit,
+    onNavigateToSecurity: () -> Unit,
+) {
+    val scrollState = rememberScrollState()
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        topBar = {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 1.dp
+            ) {
+                Row(
+                    modifier = Modifier
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                        .fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(Icons.Default.Close, contentDescription = "Back")
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "Settings",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+        }
+    ) { padding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(scrollState)
+                .padding(horizontal = 16.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text("Backup Settings", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            BackupSettingsCard(
+                settings = backupSettings,
+                onUpdate = onUpdateBackupSettings,
+                onRunBackupNow = onRunBackupNow,
+                onRestoreAll = onRestoreAll,
+                downloadDestinationLabel = downloadDestinationLabel,
+                onChooseDownloadFolder = onChooseDownloadFolder,
+                onClearDownloadFolder = onClearDownloadFolder,
+            )
+            HorizontalDivider()
+            Text("Security", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            OutlinedButton(
+                onClick = onNavigateToSecurity,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Default.Settings, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Security Settings")
+            }
+            OutlinedButton(
+                onClick = onLogout,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Default.Logout, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Logout")
+            }
+            Spacer(Modifier.height(84.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+private fun BackupSettingsCard(
+    settings: BackupSettingsEntity,
+    onUpdate: (BackupSettingsEntity) -> Unit,
+    onRunBackupNow: () -> Unit,
+    onRestoreAll: () -> Unit,
+    downloadDestinationLabel: String,
+    onChooseDownloadFolder: () -> Unit,
+    onClearDownloadFolder: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    ElevatedCard(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(22.dp),
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Outlined.SdStorage, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                }
+                Spacer(Modifier.width(12.dp))
+                Column {
+                    Text("Device Backup", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Last backup: ${formatRelativeTime(settings.lastBackupAt)}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(onClick = onRestoreAll, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Default.Restore, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Restore all")
+                }
+                Button(onClick = onRunBackupNow, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Default.Sync, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("Sync now")
+                }
+            }
+            var showSheet by remember { mutableStateOf(false) }
+            Button(onClick = { showSheet = true }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Default.Settings, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Configure backup")
+            }
+            if (showSheet) {
+                BackupSettingsSheet(
+                    settings = settings,
+                    onDismiss = { showSheet = false },
+                    onUpdate = onUpdate,
+                    downloadDestinationLabel = downloadDestinationLabel,
+                    onChooseDownloadFolder = onChooseDownloadFolder,
+                    onClearDownloadFolder = onClearDownloadFolder,
+                    onRunBackupNow = onRunBackupNow,
+                    onRestoreAll = onRestoreAll,
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DashboardScaffold(
+    state: DriveUiState,
+    darkMode: Boolean,
+    onToggleTheme: () -> Unit,
+    onRefresh: () -> Unit,
+    onSelectFolder: (Long?) -> Unit,
+    onCreateFolder: (String) -> Unit,
+    onDeleteFolder: (Long) -> Unit,
+    onQueryChange: (String) -> Unit,
+    onUpload: (Uri, String, Boolean) -> Unit,
+    onDownload: (FileEntity) -> Unit,
+    onDownloadTo: (FileEntity, Uri) -> Unit,
+    onDeleteFile: (FileEntity) -> Unit,
+    onDeleteFiles: (List<FileEntity>) -> Unit,
+    onMoveFiles: (List<FileEntity>, Long?) -> Unit,
+    onUpdateBackupSettings: (BackupSettingsEntity) -> Unit,
+    onSetDownloadDestination: (Uri) -> Unit,
+    onClearDownloadDestination: () -> Unit,
+    onRecordBackupRun: () -> Unit,
+    onRestoreAll: () -> Unit,
+    onLogout: () -> Unit,
+    onNavigateToSettings: () -> Unit,
+    onNavigateToSecurity: () -> Unit,
+    driveViewModel: DriveViewModel,
+) {
+    val autoRefreshIntervalMs = 15_000L
     var showFolders by remember { mutableStateOf(false) }
     var showCreateFolder by remember { mutableStateOf(false) }
     var showMoveSheet by remember { mutableStateOf(false) }
@@ -573,15 +823,18 @@ private fun DashboardScreen(
     var downloadOptionsFile by remember { mutableStateOf<FileEntity?>(null) }
     var folderPendingDelete by remember { mutableStateOf<FolderEntity?>(null) }
     var selectedIds by remember { mutableStateOf(setOf<Long>()) }
-    var fileTab by remember { mutableStateOf(FileTab.AllFiles) }
-    var sortOption by remember { mutableStateOf(FileSort.NameAsc) }
+    var fileTab by remember { mutableStateOf(FileTab.Home) }
+    var pendingEncrypt by remember { mutableStateOf(false) }
+    val sortOrder by driveViewModel.sortOrder.collectAsState()
+    val allSortedFiles by driveViewModel.sortedFiles.collectAsState()
+    val context = LocalContext.current
 
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let {
-            val name = it.lastPathSegment?.substringAfterLast('/') ?: "file"
-            onUpload(it, name)
-        }
-    }
+     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+         uris.forEach { uri ->
+             val name = context.displayNameForUri(uri)
+             onUpload(uri, name, pendingEncrypt)
+         }
+     }
     val downloadFolderPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         uri?.let(onSetDownloadDestination)
     }
@@ -593,16 +846,12 @@ private fun DashboardScreen(
         }
     }
 
-    val displayedFiles by remember(state.files, fileTab, sortOption) {
-        derivedStateOf {
-            state.files
-                .filter { fileTab.matches(it) }
-                .sortedWith(sortOption.comparator)
+    val displayedFiles by remember(allSortedFiles, fileTab) {
+        derivedStateOf { 
+            if (fileTab == FileTab.Home) allSortedFiles 
+            else allSortedFiles.filter { fileTab.matches(it) } 
         }
     }
-    val context = LocalContext.current
-    val categories = remember(state.files) { buildCategories(state.files) }
-    val storageStats = rememberStorageStats()
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -614,18 +863,19 @@ private fun DashboardScreen(
         },
         floatingActionButton = {
             Box(contentAlignment = Alignment.BottomEnd) {
-                if (showUploadMenu) {
+                 if (showUploadMenu) {
                     UploadActionMenu(
-                        onUploadFiles = {
+                        onUploadFiles = { encrypt ->
                             showUploadMenu = false
+                            pendingEncrypt = encrypt
                             picker.launch(arrayOf("*/*"))
                         },
-                        onSyncAll = {
-                            showUploadMenu = false
-                            showBackupSheet = true
-                        },
-                    )
-                }
+                 onSyncAll = {
+                     showUploadMenu = false
+                     onRecordBackupRun()
+                 },
+                     )
+                 }
                 IconButton(
                     onClick = { showUploadMenu = !showUploadMenu },
                     modifier = Modifier
@@ -648,138 +898,210 @@ private fun DashboardScreen(
                 modifier = Modifier.fillMaxSize(),
             ) {
                 DashboardHeader(
-                    onLogout = onLogout,
-                    onToggleDark = onToggleDark,
                     darkMode = darkMode,
-                    onThemeOriginChange = onThemeOriginChange,
+                    onToggleTheme = onToggleTheme,
+                    onNavigateToSettings = onNavigateToSettings,
                 )
+
+                if (fileTab == FileTab.Home) {
+                    ElevatedCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        shape = RoundedCornerShape(22.dp),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            OutlinedTextField(
+                                value = state.query,
+                                onValueChange = onQueryChange,
+                                modifier = Modifier.weight(1f),
+                                placeholder = { Text("Search in TeleDrive") },
+                                singleLine = true,
+                                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                                shape = RoundedCornerShape(16.dp),
+                                colors = TextFieldDefaults.colors(
+                                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                                    focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                                )
+                            )
+                            IconButton(onClick = onRefresh) {
+                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(20.dp))
+                            }
+                        }
+                    }
+                }
 
                 if (state.busy && state.files.isEmpty()) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
                     }
                 } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp),
-                    ) {
-                        item {
-                            // Search and Folder context
-                            ElevatedCard(
-                                colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                shape = RoundedCornerShape(22.dp),
-                            ) {
-                                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        TextButton(onClick = { showFolders = true }) {
-                                            Icon(Icons.Default.Folder, contentDescription = null, modifier = Modifier.size(20.dp))
-                                            Spacer(Modifier.width(8.dp))
-                                            Text(
-                                                currentFolderName(state.activeFolderId, state.folders),
-                                                style = MaterialTheme.typography.titleMedium,
-                                                fontWeight = FontWeight.Bold
-                                            )
+                    val listState = rememberLazyListState()
+                    val isScrolling = listState.isScrollInProgress
+                    val isRefreshing = state.busy
+                    val pullOffset = remember { Animatable(0f) }
+                    val refreshThreshold = 120f
+                    
+                    LaunchedEffect(isRefreshing) {
+                        if (isRefreshing) {
+                            pullOffset.animateTo(refreshThreshold)
+                        } else {
+                            pullOffset.animateTo(0f)
+                        }
+                    }
+                    
+                    // Pause auto-refresh while scrolling to prevent lag
+                    LaunchedEffect(onRefresh, state.busy, isScrolling) {
+                        while (true) {
+                            delay(autoRefreshIntervalMs)
+                            if (!state.busy && !isScrolling) onRefresh()
+                        }
+                    }
+                    
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .pointerInput(Unit) {
+                                detectVerticalDragGestures(
+                                    onDragEnd = {
+                                        if (pullOffset.value >= refreshThreshold && !isRefreshing) {
+                                            onRefresh()
                                         }
-                                        Spacer(Modifier.weight(1f))
-                                        IconButton(onClick = onRefresh) {
-                                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(20.dp))
+                                    },
+                                    onVerticalDrag = { _, dragAmount ->
+                                        if (listState.firstVisibleItemIndex == 0 && 
+                                            listState.firstVisibleItemScrollOffset == 0 && 
+                                            dragAmount > 0) {
+                                            val newOffset = (pullOffset.value + dragAmount * 0.5f).coerceIn(0f, refreshThreshold * 1.5f)
+                                            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+                                                pullOffset.snapTo(newOffset)
+                                            }
                                         }
                                     }
-                                    OutlinedTextField(
-                                        value = state.query,
-                                        onValueChange = onQueryChange,
-                                        modifier = Modifier.fillMaxWidth(),
-                                        placeholder = { Text("Search in TeleDrive") },
-                                        singleLine = true,
-                                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                                        shape = RoundedCornerShape(16.dp),
-                                        colors = TextFieldDefaults.colors(
-                                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                                        )
+                                )
+                            }
+                    ) {
+                        if (pullOffset.value > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height((pullOffset.value).dp)
+                                    .align(Alignment.TopCenter),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (isRefreshing) {
+                                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                                }
+                            }
+                        }
+                        
+                        LazyColumnScrollbar(
+                        state = listState,
+                        settings = ScrollbarSettings(
+                            enabled = true,
+                            alwaysShowScrollbar = false,          // auto-hide like Fossify
+                            thumbThickness = 6.dp,
+                            scrollbarPadding = 4.dp,
+                            thumbMinLength = 0.08f,               // tiny thumb on huge lists
+                            thumbUnselectedColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                            thumbSelectedColor = MaterialTheme.colorScheme.primary,
+                            thumbShape = RoundedCornerShape(3.dp),
+                            selectionMode = ScrollbarSelectionMode.Thumb,
+                            hideDelayMillis = 800,
+                            durationAnimationMillis = 300,
+                        ),
+                        // ── Position bubble (like Fossify's letter/date popup) ──
+                        indicatorContent = { index, isThumbSelected ->
+                            val file = displayedFiles.getOrNull(index)
+                            if (isThumbSelected && file != null) {
+                                ScrollPositionIndicator(file = file)
+                            }
+                        }
+                    ) {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(
+                                start = 16.dp, end = 32.dp,
+                                top = 8.dp, bottom = 88.dp
+                            ),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            if (fileTab == FileTab.Home && state.transfers.any { it.status == TransferStatus.Running || it.status == TransferStatus.Pending }) {
+                                item(key = "transfer_strip") {
+                                    TransferStrip(state.transfers, onCancelTransfer = driveViewModel::cancelTransfer)
+                                }
+                            }
+                            item(key = "section_header") {
+                                FilesSectionHeader(
+                                    selectedTab = fileTab,
+                                    sortOption = sortOrder,
+                                    onSortOptionChange = { driveViewModel.sortOrder.value = it },
+                                )
+                            }
+                            if (state.message != null) {
+                                item(key = "error_msg") {
+                                    Text(
+                                        state.message ?: "",
+                                        color = MaterialTheme.colorScheme.error,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.padding(horizontal = 4.dp),
+                                    )
+                                }
+                            }
+                            if (displayedFiles.isEmpty()) {
+                                item(key = "empty") {
+                                    EmptyDrive(onUpload = { picker.launch(arrayOf("*/*")) })
+                                }
+                            } else {
+                                val lastId = displayedFiles.last().messageId
+                                items(
+                                    items = displayedFiles,
+                                    key = { file -> file.messageId },
+                                    contentType = { "file" }
+                                ) { file ->
+                                    val selected = file.messageId in selectedIds
+                                    val preview = state.previewCache[previewCacheKeyFor(file)]
+                                    val tint = fileTint(file)
+                                    val cacheKey = previewCacheKeyFor(file)
+                                    val sizeAndDate = "${formatBytes(file.size)} \u2022 ${formatDate(file.createdAt)} \u2022 ${sourceLabel(file)}"
+                                    FileListRow(
+                                        file = file,
+                                        preview = preview,
+                                        selected = selected,
+                                        tint = tint,
+                                        showDivider = file.messageId != lastId,
+                                        onPreview = {
+                                            val localFile = file.localCachePath?.let(::File)
+                                            if (localFile != null && localFile.exists()) {
+                                                if (isInAppMedia(file) || isTextFile(file)) previewFile = file
+                                                else openFileWithSystem(context, file, localFile)
+                                            } else {
+                                                previewFile = file
+                                                onDownload(file)
+                                            }
+                                        },
+                                        onToggleSelection = {
+                                            selectedIds = if (file.messageId in selectedIds)
+                                                selectedIds - file.messageId
+                                            else selectedIds + file.messageId
+                                        },
+                                        onDownload = { downloadOptionsFile = file },
+                                        onDelete = { onDeleteFile(file) },
+                                        thumbnailBitmapCache = driveViewModel.thumbnailBitmapCache,
+                                        onRequestThumbnailLoad = driveViewModel::loadThumbnail,
+                                        cacheKey = cacheKey,
+                                        sizeAndDate = sizeAndDate,
                                     )
                                 }
                             }
                         }
-                        item {
-                            CategorySection(
-                                categories = categories,
-                                onOpenTab = { fileTab = it },
-                            )
-                        }
-                        item {
-                            BackupStatusCard(
-                                settings = state.backupSettings,
-                                storageStats = storageStats,
-                                onOpen = { showBackupSheet = true },
-                            )
-                        }
-                        item {
-                            FilesSectionHeader(
-                                sortOption = sortOption,
-                                onSortOptionChange = { sortOption = it },
-                            )
-                        }
-                        if (state.message != null) {
-                            item {
-                                Text(
-                                    state.message ?: "",
-                                    color = MaterialTheme.colorScheme.error,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    modifier = Modifier.padding(horizontal = 4.dp),
-                                )
-                            }
-                        }
-                        if (displayedFiles.isEmpty()) {
-                            item {
-                                EmptyDrive(onUpload = { picker.launch(arrayOf("*/*")) })
-                            }
-                        } else {
-                            itemsIndexed(
-                                items = displayedFiles,
-                                key = { _, file -> "${fileTab.name}_${file.messageId}" }
-                            ) { index, file ->
-                                val selected = file.messageId in selectedIds
-                                FileListRow(
-                                    file = file,
-                                    selected = selected,
-                                    showDivider = index != displayedFiles.lastIndex,
-                                    onPreview = {
-                                        val localFile = file.localCachePath?.let(::File)
-                                        if (localFile != null && localFile.exists()) {
-                                            if (isInAppMedia(file)) {
-                                                previewFile = file
-                                            } else if (isTextFile(file)) {
-                                                previewFile = file
-                                            } else {
-                                                openFileWithSystem(context, file, localFile)
-                                            }
-                                        } else {
-                                            previewFile = file
-                                            onDownload(file)
-                                        }
-                                    },
-                                    onToggleSelection = {
-                                        selectedIds = if (file.messageId in selectedIds) {
-                                            selectedIds - file.messageId
-                                        } else {
-                                            selectedIds + file.messageId
-                                        }
-                                    },
-                                    onDownload = { downloadOptionsFile = file },
-                                    onDelete = { onDeleteFile(file) },
-                                )
-                            }
-                        }
-                        if (state.transfers.isNotEmpty()) {
-                            item {
-                                TransferStrip(state.transfers)
-                            }
-                        }
-                        item {
-                            Spacer(Modifier.height(84.dp))
-                        }
+                    }
                     }
                 }
             }
@@ -931,88 +1253,10 @@ private fun DashboardScreen(
 }
 
 @Composable
-private fun DashboardHeader(
-    darkMode: Boolean,
-    state: DriveUiState,
-    onToggleDark: () -> Unit,
-    onThemeOriginChange: (Offset) -> Unit,
-    onOpenFolders: () -> Unit,
-    onRefresh: () -> Unit,
-    onLogout: () -> Unit,
-    onQueryChange: (String) -> Unit,
-) {
-    ElevatedCard(
-        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 10.dp),
-        shape = RoundedCornerShape(26.dp),
-    ) {
-        Column(modifier = Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Row(
-                    modifier = Modifier.weight(1f),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    IconButton(
-                        onClick = onOpenFolders,
-                        modifier = Modifier
-                            .size(42.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f)),
-                    ) {
-                        TeleDriveLogo(markColor = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
-                    }
-                    Column {
-                        Text(
-                            currentFolderName(state.activeFolderId, state.folders),
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text(
-                            "${state.files.size} files",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                IconButton(
-                    onClick = onToggleDark,
-                    modifier = Modifier.onGloballyPositioned { coordinates ->
-                        val position = coordinates.positionInRoot()
-                        onThemeOriginChange(
-                            Offset(
-                                position.x + coordinates.size.width / 2f,
-                                position.y + coordinates.size.height / 2f,
-                            ),
-                        )
-                    },
-                ) {
-                    Icon(if (darkMode) Icons.Default.WbSunny else Icons.Default.DarkMode, contentDescription = "Toggle theme")
-                }
-                IconButton(onClick = onRefresh) {
-                    Icon(Icons.Default.Refresh, contentDescription = "Refresh")
-                }
-                IconButton(onClick = onLogout) {
-                    Icon(Icons.Default.Logout, contentDescription = "Logout")
-                }
-            }
-            OutlinedTextField(
-                value = state.query,
-                onValueChange = onQueryChange,
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Search in TeleDrive") },
-                singleLine = true,
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                shape = RoundedCornerShape(22.dp),
-            )
-        }
-    }
-}
-
-@Composable
 private fun CategorySection(
     categories: List<CategoryCardModel>,
     onOpenTab: (FileTab) -> Unit,
+    previewCache: Map<String, com.teledrive.android.data.PreviewCacheEntity>,
 ) {
     ElevatedCard(
         colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -1027,6 +1271,7 @@ private fun CategorySection(
                             model = category,
                             modifier = Modifier.weight(1f),
                             onClick = { onOpenTab(category.tab) },
+                            previewCache = previewCache,
                         )
                     }
                     if (row.size == 1) Spacer(Modifier.weight(1f))
@@ -1041,6 +1286,7 @@ private fun CategoryCard(
     model: CategoryCardModel,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
+    previewCache: Map<String, com.teledrive.android.data.PreviewCacheEntity>,
 ) {
     Card(
         onClick = onClick,
@@ -1064,7 +1310,7 @@ private fun CategoryCard(
                     Text(model.countLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            PreviewThumbnailStrip(files = model.previewFiles, tint = model.tint)
+            PreviewThumbnailStrip(files = model.previewFiles, tint = model.tint, previewCache = previewCache)
         }
     }
 }
@@ -1073,7 +1319,9 @@ private fun CategoryCard(
 private fun PreviewThumbnailStrip(
     files: List<FileEntity>,
     tint: Color,
+    previewCache: Map<String, com.teledrive.android.data.PreviewCacheEntity> = emptyMap(),
 ) {
+    val localCache = remember { androidx.compose.runtime.snapshots.SnapshotStateMap<String, ImageBitmap>() }
     if (files.isEmpty()) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             repeat(2) {
@@ -1097,6 +1345,7 @@ private fun PreviewThumbnailStrip(
         previewItems.chunked(2).forEach { rowFiles ->
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 rowFiles.forEach { file ->
+                    val preview = previewCache[previewCacheKeyFor(file)]
                     Box(
                         modifier = Modifier
                             .weight(1f)
@@ -1110,6 +1359,9 @@ private fun PreviewThumbnailStrip(
                             modifier = Modifier.fillMaxSize(),
                             tint = tint,
                             compact = true,
+                            preview = preview,
+                            thumbnailBitmapCache = localCache,
+                            cacheKey = previewCacheKeyFor(file),
                         )
                     }
                 }
@@ -1173,6 +1425,7 @@ private fun BackupStatusCard(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun FilesSectionHeader(
+    selectedTab: FileTab,
     sortOption: FileSort,
     onSortOptionChange: (FileSort) -> Unit,
 ) {
@@ -1181,7 +1434,7 @@ private fun FilesSectionHeader(
         shape = RoundedCornerShape(22.dp),
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("All Files", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(selectedTab.sectionTitle, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 FileSort.entries.forEach { option ->
                     FilterChip(
@@ -1199,18 +1452,15 @@ private fun FilesSectionHeader(
 private fun FileContentThumbnail(
     file: FileEntity,
     modifier: Modifier = Modifier,
-    tint: Color = fileTint(file),
+    tint: Color,
     compact: Boolean = false,
+    preview: com.teledrive.android.data.PreviewCacheEntity? = null,
+    thumbnailBitmapCache: SnapshotStateMap<String, ImageBitmap>,
+    cacheKey: String,
+    onRequestLoad: ((key: String, base64: String) -> Unit)? = null,
 ) {
-    val localFile = remember(file.localCachePath) { file.localCachePath?.let(::File) }
-    val imageBitmap = remember(file.thumbnailBase64) {
-        file.thumbnailBase64?.let { encoded ->
-            runCatching {
-                val bytes = Base64.decode(encoded, Base64.DEFAULT)
-                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
-            }.getOrNull()
-        }
-    }
+    val previewThumbFile = preview?.thumbnailLocalPath?.let(::File)
+    val imageBitmap = thumbnailBitmapCache[cacheKey]
 
     Box(
         modifier = modifier
@@ -1219,6 +1469,14 @@ private fun FileContentThumbnail(
         contentAlignment = Alignment.Center,
     ) {
         when {
+            previewThumbFile != null && previewThumbFile.exists() -> {
+                AsyncImage(
+                    model = previewThumbFile,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                )
+            }
             imageBitmap != null -> {
                 Image(
                     bitmap = imageBitmap,
@@ -1227,29 +1485,15 @@ private fun FileContentThumbnail(
                     contentScale = ContentScale.Crop,
                 )
             }
-            localFile != null && localFile.exists() && file.mimeType?.startsWith("image/") == true -> {
+            file.localCachePath != null && File(file.localCachePath).exists() && file.mimeType?.startsWith("image/") == true -> {
                 AsyncImage(
-                    model = localFile,
+                    model = File(file.localCachePath),
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
                 )
             }
-            isTextFile(file) && localFile != null && localFile.exists() -> {
-                val snippet by produceState<String?>(initialValue = null, localFile.absolutePath) {
-                    value = withContext(Dispatchers.IO) {
-                        runCatching {
-                            localFile.readText()
-                                .lineSequence()
-                                .filter { it.isNotBlank() }
-                                .take(if (compact) 3 else 5)
-                                .joinToString("\n")
-                                .take(if (compact) 90 else 180)
-                        }.getOrNull()
-                    }
-                }
-                TextPreviewThumb(snippet = snippet, tint = tint, compact = compact)
-            }
+            preview?.textSnippet != null -> TextPreviewThumb(snippet = preview.textSnippet, tint = tint, compact = compact)
             else -> TypePreviewThumb(file = file, tint = tint, compact = compact)
         }
     }
@@ -1331,19 +1575,47 @@ private fun TypePreviewThumb(file: FileEntity, tint: Color, compact: Boolean) {
 }
 
 @Composable
+private fun ScrollPositionIndicator(file: FileEntity) {
+    val label = remember(file.createdAt) {
+        val zdt = Instant.ofEpochMilli(file.createdAt).atZone(ZoneId.systemDefault())
+        "${zdt.month.getDisplayName(TextStyle.SHORT, Locale.getDefault())} ${zdt.year}"
+    }
+    Surface(
+        color = MaterialTheme.colorScheme.primary,
+        shape = RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp, topEnd = 0.dp, bottomEnd = 0.dp),
+        shadowElevation = 4.dp,
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onPrimary,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
+@Composable
 private fun FileListRow(
     file: FileEntity,
+    preview: com.teledrive.android.data.PreviewCacheEntity? = null,
     selected: Boolean,
+    tint: Color,
     showDivider: Boolean,
     onPreview: () -> Unit,
     onToggleSelection: () -> Unit,
     onDownload: () -> Unit,
     onDelete: () -> Unit,
+    thumbnailBitmapCache: SnapshotStateMap<String, ImageBitmap>,
+    onRequestThumbnailLoad: ((key: String, base64: String) -> Unit)?,
+    cacheKey: String,
+    sizeAndDate: String,
 ) {
-    val background = if (selected) {
-        MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-    } else {
-        Color.Transparent
+    val background = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent
+    val base64 = file.thumbnailBase64
+    val previewThumbExists = preview?.thumbnailLocalPath?.let { java.io.File(it).exists() } == true
+    if (base64 != null && !thumbnailBitmapCache.containsKey(cacheKey) && !previewThumbExists && onRequestThumbnailLoad != null) {
+        LaunchedEffect(cacheKey) { onRequestThumbnailLoad(cacheKey, base64) }
     }
     Column(
         modifier = Modifier
@@ -1366,13 +1638,17 @@ private fun FileListRow(
                 modifier = Modifier
                     .size(54.dp)
                     .clip(RoundedCornerShape(14.dp))
-                    .background(fileTint(file).copy(alpha = 0.16f)),
+                    .background(tint.copy(alpha = 0.16f)),
                 contentAlignment = Alignment.Center,
             ) {
                 FileContentThumbnail(
                     file = file,
                     modifier = Modifier.fillMaxSize(),
-                    tint = fileTint(file),
+                    tint = tint,
+                    preview = preview,
+                    thumbnailBitmapCache = thumbnailBitmapCache,
+                    cacheKey = cacheKey,
+                    onRequestLoad = null,
                 )
             }
             Spacer(Modifier.width(12.dp))
@@ -1383,7 +1659,7 @@ private fun FileListRow(
                     SyncStatusIcon(file.syncStatus)
                 }
                 Text(
-                    "${formatBytes(file.size)} • ${formatDate(file.createdAt)} • ${sourceLabel(file)}",
+                    sizeAndDate,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.bodySmall,
@@ -1487,18 +1763,27 @@ private fun NavigationFooter(
 
 @Composable
 private fun UploadActionMenu(
-    onUploadFiles: () -> Unit,
+    onUploadFiles: (Boolean) -> Unit,
     onSyncAll: () -> Unit,
 ) {
     ElevatedCard(
         modifier = Modifier
             .padding(bottom = 144.dp, end = 8.dp)
-            .width(190.dp),
+            .width(220.dp),
         shape = RoundedCornerShape(18.dp),
         elevation = CardDefaults.elevatedCardElevation(defaultElevation = 14.dp),
     ) {
         Column(modifier = Modifier.padding(vertical = 8.dp)) {
-            ActionMenuRow(icon = Icons.Default.UploadFile, label = "Upload files", onClick = onUploadFiles)
+            ActionMenuRow(
+                icon = Icons.Default.UploadFile,
+                label = "Upload files",
+                onClick = { onUploadFiles(false) }
+            )
+            ActionMenuRow(
+                icon = Icons.Default.CloudUpload,
+                label = "Encrypt & upload",
+                onClick = { onUploadFiles(true) }
+            )
             ActionMenuRow(icon = Icons.Default.Sync, label = "Sync all", onClick = onSyncAll)
         }
     }
@@ -1822,6 +2107,7 @@ private fun CreateFolderDialog(onDismiss: () -> Unit, onCreate: (String) -> Unit
 
 @Composable
 private fun PreviewDialog(file: FileEntity, transfer: TransferEntity?, onDismiss: () -> Unit) {
+    val localCache = remember { androidx.compose.runtime.snapshots.SnapshotStateMap<String, ImageBitmap>() }
     val isMedia = file.mimeType?.startsWith("image/") == true || file.mimeType?.startsWith("video/") == true
     val isText = isTextFile(file)
     Dialog(
@@ -1854,16 +2140,14 @@ private fun PreviewDialog(file: FileEntity, transfer: TransferEntity?, onDismiss
                         )
                     }
                 } else if (file.thumbnailBase64 != null) {
-                    val bitmap = remember(file.thumbnailBase64) {
-                        try {
-                            val bytes = Base64.decode(file.thumbnailBase64, Base64.DEFAULT)
-                            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
-                        } catch (_: Exception) {
-                            null
+                    val bitmap by produceState<ImageBitmap?>(initialValue = null, file.thumbnailBase64) {
+                        value = withContext(Dispatchers.IO) {
+                            decodeThumbnail(file.thumbnailBase64)
                         }
                     }
-                    if (bitmap != null) {
-                        Image(bitmap = bitmap, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                    val thumbnail = bitmap
+                    if (thumbnail != null) {
+                        Image(bitmap = thumbnail, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
                     }
                     Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1885,8 +2169,16 @@ private fun PreviewDialog(file: FileEntity, transfer: TransferEntity?, onDismiss
             Card {
                 Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(file.name, maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    val text = remember(file.localCachePath) {
-                        runCatching { File(file.localCachePath).readText().take(12_000) }.getOrElse { "Unable to read text file." }
+                    val text by produceState(initialValue = "Loading...", file.localCachePath) {
+                        value = withContext(Dispatchers.IO) {
+                            runCatching {
+                                File(file.localCachePath).bufferedReader().use { reader ->
+                                    val buffer = CharArray(12_000)
+                                    val count = reader.read(buffer).coerceAtLeast(0)
+                                    String(buffer, 0, count)
+                                }
+                            }.getOrElse { "Unable to read text file." }
+                        }
                     }
                     Text(
                         text,
@@ -1908,6 +2200,8 @@ private fun PreviewDialog(file: FileEntity, transfer: TransferEntity?, onDismiss
                             .size(112.dp)
                             .align(Alignment.CenterHorizontally),
                         tint = fileTint(file),
+                        thumbnailBitmapCache = localCache,
+                        cacheKey = previewCacheKeyFor(file),
                     )
                     Text("Type: ${displayFileType(file)}", style = MaterialTheme.typography.bodySmall)
                     Text("Size: ${formatBytes(file.size)}", style = MaterialTheme.typography.bodySmall)
@@ -1941,7 +2235,7 @@ private fun EmptyDrive(onUpload: () -> Unit) {
 }
 
 @Composable
-private fun TransferStrip(transfers: List<TransferEntity>) {
+private fun TransferStrip(transfers: List<TransferEntity>, onCancelTransfer: ((String) -> Unit)? = null) {
     val running = transfers.filter { it.status == TransferStatus.Running || it.status == TransferStatus.Pending }
     if (running.isEmpty()) return
     ElevatedCard(shape = RoundedCornerShape(20.dp)) {
@@ -1951,11 +2245,42 @@ private fun TransferStrip(transfers: List<TransferEntity>) {
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text("Transfers", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Text("Processes", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             running.forEach { transfer ->
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(transfer.fileName, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
-                    LinearProgressIndicator(progress = { transfer.progress / 100f }, modifier = Modifier.fillMaxWidth())
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator(
+                            progress = { transfer.progress / 100f },
+                            modifier = Modifier.size(34.dp),
+                            strokeWidth = 2.dp,
+                        )
+                        Icon(
+                            if (transfer.type == TransferType.Upload) Icons.Default.CloudUpload else Icons.Default.CloudDownload,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(transfer.fileName, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+                        LinearProgressIndicator(progress = { transfer.progress / 100f }, modifier = Modifier.fillMaxWidth())
+                    }
+                    Text("${transfer.progress}%", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (onCancelTransfer != null) {
+                        IconButton(onClick = { onCancelTransfer(transfer.id) }, modifier = Modifier.size(32.dp)) {
+                            Icon(Icons.Default.Close, contentDescription = "Cancel", modifier = Modifier.size(18.dp))
+                        }
+                    }
                 }
             }
         }
@@ -1991,9 +2316,45 @@ private fun buildCategories(files: List<FileEntity>): List<CategoryCardModel> {
         CategoryCardModel("Photos", "${photoFiles.size} files", Icons.Outlined.Image, Color(0xFF5A9BFF), photoFiles, FileTab.Photos),
         CategoryCardModel("Videos", "${videoFiles.size} videos", Icons.Outlined.VideoLibrary, Color(0xFFB367FF), videoFiles, FileTab.Videos),
         CategoryCardModel("Files", "${genericFiles.size} files", Icons.Outlined.InsertDriveFile, Color(0xFF6CC28A), genericFiles, FileTab.Files),
-        CategoryCardModel("Audio", "${audioFiles.size} files", Icons.Outlined.MusicNote, Color(0xFFF0A24C), audioFiles, FileTab.AllFiles),
+        CategoryCardModel("Audio", "${audioFiles.size} files", Icons.Outlined.MusicNote, Color(0xFFF0A24C), audioFiles, FileTab.Files),
     )
 }
+
+private fun previewCacheKeyFor(file: FileEntity): String =
+    file.tdRemoteUniqueId?.takeIf { it.isNotBlank() } ?: "${file.folderId ?: 0L}:${file.messageId}"
+
+private fun Context.displayNameForUri(uri: Uri): String {
+    val resolverName = runCatching {
+        contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+            val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (index >= 0 && cursor.moveToFirst()) cursor.getString(index) else null
+        }
+    }.getOrNull()
+
+    return resolverName
+        ?.takeIf { it.isNotBlank() }
+        ?: uri.lastPathSegment?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
+        ?: "file"
+}
+
+private fun decodeThumbnail(encoded: String?): ImageBitmap? =
+    encoded?.let {
+        runCatching {
+            val bytes = Base64.decode(it, Base64.DEFAULT)
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+        }.getOrNull()
+    }
+
+private fun loadTextSnippet(file: File, maxLines: Int, maxChars: Int): String? =
+    runCatching {
+        file.useLines { lines ->
+            lines
+                .filter { it.isNotBlank() }
+                .take(maxLines)
+                .joinToString("\n")
+                .take(maxChars)
+        }
+    }.getOrNull()
 
 private fun currentFolderName(activeFolderId: Long?, folders: List<FolderEntity>) =
     if (activeFolderId == null) "TeleDrive" else folders.firstOrNull { it.id == activeFolderId }?.name ?: "Folder"
@@ -2112,7 +2473,6 @@ private fun backupFolderIcon(folder: BackupFolder): ImageVector = when (folder) 
     BackupFolder.WhatsAppImages -> Icons.Outlined.PhotoLibrary
     BackupFolder.WhatsAppVideo -> Icons.Outlined.VideoLibrary
     BackupFolder.Documents -> Icons.Outlined.Description
-    BackupFolder.CustomFolder -> Icons.Outlined.FolderOpen
 }
 
 private data class StorageStats(
@@ -2130,34 +2490,26 @@ private data class CategoryCardModel(
     val tab: FileTab,
 )
 
-private enum class FileTab(val label: String, val icon: ImageVector) {
-    AllFiles("All Files", Icons.Outlined.Collections),
-    Videos("Videos", Icons.Outlined.VideoLibrary),
-    Photos("Photos", Icons.Outlined.PhotoLibrary),
-    Files("Files", Icons.Outlined.FolderOpen),
+private enum class FileTab(val label: String, val icon: ImageVector, val sectionTitle: String) {
+    Home("Home", Icons.Default.Cloud, "All Files"),
+    Photos("Photos", Icons.Outlined.PhotoLibrary, "Photos"),
+    Videos("Videos", Icons.Outlined.VideoLibrary, "Videos"),
+    Files("Files", Icons.Outlined.FolderOpen, "Files"),
     ;
 
     fun matches(file: FileEntity): Boolean = when (this) {
-        AllFiles -> true
-        Videos -> fileTypeGroup(file) == Videos
+        Home -> true
         Photos -> fileTypeGroup(file) == Photos
+        Videos -> fileTypeGroup(file) == Videos
         Files -> fileTypeGroup(file) == Files || isAudio(file)
     }
 }
 
-private enum class FileSort(val label: String, val comparator: Comparator<FileEntity>) {
-    NameAsc("Name A-Z", compareBy { it.name.lowercase(Locale.getDefault()) }),
-    NameDesc("Name Z-A", compareByDescending { it.name.lowercase(Locale.getDefault()) }),
-    Size("Size", compareByDescending<FileEntity> { it.size }.thenBy { it.name.lowercase(Locale.getDefault()) }),
-    Created("Created date", compareByDescending<FileEntity> { it.createdAt }.thenBy { it.name.lowercase(Locale.getDefault()) }),
-}
-
 @Composable
 private fun DashboardHeader(
-    onLogout: () -> Unit,
-    onToggleDark: () -> Unit,
     darkMode: Boolean,
-    onThemeOriginChange: (Offset) -> Unit,
+    onToggleTheme: () -> Unit,
+    onNavigateToSettings: () -> Unit,
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -2190,23 +2542,17 @@ private fun DashboardHeader(
                 color = MaterialTheme.colorScheme.onSurface
             )
             Spacer(Modifier.weight(1f))
-            IconButton(
-                onClick = onToggleDark,
-                modifier = Modifier.onGloballyPositioned { coords ->
-                    val pos = coords.positionInRoot()
-                    onThemeOriginChange(Offset(pos.x + coords.size.width / 2f, pos.y + coords.size.height / 2f))
-                }
-            ) {
+            IconButton(onClick = onToggleTheme) {
                 Icon(
                     if (darkMode) Icons.Default.WbSunny else Icons.Default.DarkMode,
-                    contentDescription = null,
+                    contentDescription = "Toggle theme",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
-            IconButton(onClick = onLogout) {
+            IconButton(onClick = onNavigateToSettings) {
                 Icon(
-                    Icons.Default.Logout,
-                    contentDescription = null,
+                    Icons.Default.Settings,
+                    contentDescription = "Settings",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }

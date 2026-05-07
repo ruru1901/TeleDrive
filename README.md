@@ -422,6 +422,44 @@ TeleDrive includes comprehensive unit tests:
 
 ---
 
+## 🚧 Under Development
+
+### ⚠️ Known Limitations
+
+**TDLib Integration Status:**
+- ⚠️ TDLib authentication flow needs manual device validation
+- ⚠️ Upload/download progress currently simulated (needs TDLib file update events)
+- ⚠️ Search uses local Room filtering (TDLib global search API not yet integrated)
+- ⚠️ Downloaded files not yet exported to user-selected destinations
+
+**UI Features Pending:**
+- ⏳ Real thumbnail decoding and caching for images
+- ⏳ Video/audio player screen
+- ⏳ PDF viewer using Android PDF renderer
+- ⏳ Cache cleanup settings UI
+- ⏳ Background-safe WorkManager upload/download workers
+- ⏳ Notifications for long-running transfers
+
+**Testing Gaps:**
+- 🧪 TDLib runtime integration tests on emulator/device
+- 🧪 Room DAO tests
+- 🧪 Compose UI tests for onboarding and dashboard flows
+- 🧪 Android instrumentation tests for file picker, preview, and download/share flows
+
+**Gateway Improvements Needed:**
+- 🔧 Folder deletion strategy (leave/archive vs full delete for owner accounts)
+- 🔧 TDLib reflection adapter field name validation for different TDLib builds
+- 🔧 File export to external storage with proper Android permissions
+
+### 📝 Development Notes
+
+- The app currently uses `InMemoryTelegramGateway` as a fallback when TDLib is unavailable
+- TDLibX is packaged via JitPack (`com.github.tdlibx:td:1.8.56`)
+- Native libraries included: `arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`
+- Clean architecture allows swapping gateway implementations without touching UI code
+
+---
+
 ## 🤝 Contributing
 
 We welcome contributions! Here's how you can help:
@@ -529,6 +567,7 @@ If you find TeleDrive useful, please:
 
 - TeleDrive is an **independent project** and is **not affiliated** with Telegram
 - This app uses Telegram's infrastructure in compliance with their [Terms of Service](https://telegram.org/tos)
+- **Under active development** - Some features are still being implemented and tested
 - **Use at your own risk** - Always keep backups of important files
 - The developers are **not responsible** for any data loss or account issues
 - Telegram may change their policies at any time, which could affect this app

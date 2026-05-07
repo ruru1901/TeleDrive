@@ -58,3 +58,7 @@ teledrive-test*.db
 # generated native folders
 /ios
 /android
+
+# AI coding tools
+.amazonq/
+.kilo/

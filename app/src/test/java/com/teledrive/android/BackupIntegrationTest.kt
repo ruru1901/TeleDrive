@@ -4,7 +4,9 @@ import androidx.test.core.app.ApplicationProvider
 import com.teledrive.android.backup.BackupPathResolver
 import com.teledrive.android.data.BackupFolder
 import com.teledrive.android.data.BackupSettingsEntity
+import com.teledrive.android.data.TeleDriveConverters
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -42,5 +44,11 @@ class BackupIntegrationTest {
         assert(states.contains(com.teledrive.android.data.SyncStatus.CloudOnly))
         assert(states.contains(com.teledrive.android.data.SyncStatus.Synced))
         println("SyncStatus enum verified with ${states.size} states.")
+    }
+
+    @Test
+    fun testBackupFolderConverter_IgnoresLegacyUnknownFolders() {
+        val folders = TeleDriveConverters().backupFoldersFromString("Camera,CustomFolder,Downloads")
+        assertEquals(setOf(BackupFolder.Camera, BackupFolder.Downloads), folders)
     }
 }

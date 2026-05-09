@@ -76,18 +76,23 @@ fun ChangeMasterPasswordFragment(
                         newPassword.isBlank() -> error = "New password is required"
                         newPassword.length < 8 -> error = "Password must be at least 8 characters"
                         newPassword != confirmPassword -> error = "Passwords do not match"
+                        masterPasswordService == null -> error = "Security service is not available"
                         else -> {
                             busy = true
                             scope.launch {
                                 try {
-                                    val valid = masterPasswordService?.verifyMasterPassword(currentPassword) ?: false
+                                    val valid = masterPasswordService.verifyMasterPassword(currentPassword)
                                     if (!valid) {
                                         error = "Incorrect password"
                                         busy = false
                                         return@launch
                                     }
-                                    masterPasswordService?.setMasterPassword(newPassword)
-                                    onDismiss()
+                                    masterPasswordService.setMasterPassword(newPassword)
+                                    if (masterPasswordService.isMasterPasswordSet()) {
+                                        onDismiss()
+                                    } else {
+                                        error = "Password was not saved. Please try again."
+                                    }
                                 } catch (e: Exception) {
                                     error = e.message ?: "Failed to change password"
                                 } finally {

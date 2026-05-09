@@ -11,6 +11,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.teledrive.android.telegram.ChunkDownloader
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -22,6 +23,7 @@ class DownloadWorker(
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         setForeground(createForegroundInfo("Downloading...", NOTIFICATION_ID))
+        ChunkDownloader.deleteAllPartialOutputs(applicationContext.cacheDir)
         val messageId = inputData.getLong(KEY_MESSAGE_ID, UploadWorker.NULL_MESSAGE_ID)
             .takeUnless { it == UploadWorker.NULL_MESSAGE_ID }
             ?: return@withContext Result.failure()

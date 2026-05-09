@@ -115,7 +115,9 @@ class TeleDriveConverters {
     fun backupFoldersFromString(value: String): Set<BackupFolder> =
         value.split(',')
             .filter { it.isNotBlank() }
-            .map { BackupFolder.valueOf(it) }
+            .mapNotNull { name ->
+                runCatching { BackupFolder.valueOf(name) }.getOrNull()
+            }
             .toSet()
 
     @TypeConverter

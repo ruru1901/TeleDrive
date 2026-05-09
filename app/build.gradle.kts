@@ -77,6 +77,43 @@ android {
     buildFeatures {
         compose = true
     }
+
+    sourceSets {
+        getByName("main") {
+            jniLibs.srcDir(layout.buildDirectory.dir("generated/jnaJniLibs"))
+        }
+    }
+}
+
+val jnaNative by configurations.creating
+
+val extractJnaNativeLibs by tasks.registering {
+    val outputDir = layout.buildDirectory.dir("generated/jnaJniLibs")
+    outputs.dir(outputDir)
+
+    doLast {
+        val jnaJar = jnaNative.singleFile
+        val mappings = mapOf(
+            "com/sun/jna/linux-aarch64/libjnidispatch.so" to "arm64-v8a/libjnidispatch.so",
+            "com/sun/jna/linux-arm/libjnidispatch.so" to "armeabi-v7a/libjnidispatch.so",
+            "com/sun/jna/linux-x86/libjnidispatch.so" to "x86/libjnidispatch.so",
+            "com/sun/jna/linux-x86-64/libjnidispatch.so" to "x86_64/libjnidispatch.so",
+        )
+        mappings.forEach { (sourcePath, targetPath) ->
+            copy {
+                from(zipTree(jnaJar)) {
+                    include(sourcePath)
+                    eachFile { path = targetPath }
+                    includeEmptyDirs = false
+                }
+                into(outputDir)
+            }
+        }
+    }
+}
+
+tasks.matching { it.name.startsWith("merge") && it.name.endsWith("JniLibFolders") }.configureEach {
+    dependsOn(extractJnaNativeLibs)
 }
 
 dependencies {
@@ -119,6 +156,7 @@ dependencies {
     implementation(libs.androidx.media3.ui)
     implementation(libs.lazysodium)
     implementation(libs.lazysodium.jna)
+    jnaNative(libs.lazysodium.jna)
     implementation(libs.sqlcipher)
     implementation(libs.argon2kt)
     implementation(libs.kserializer)

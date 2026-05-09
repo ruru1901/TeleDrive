@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Environment
+import android.util.Log
 import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -48,7 +49,9 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -87,6 +90,7 @@ class DriveViewModel @Inject constructor(
     private val LIST_FILES_LIMIT = 100
     private var isFirstRefresh = true
     private val pendingThumbnailDownloads = mutableSetOf<Long>()
+    private val refreshMutex = Mutex()
 
     fun loadThumbnail(cacheKey: String, base64: String) {
         if (thumbnailBitmapCache.containsKey(cacheKey)) return
@@ -224,8 +228,22 @@ class DriveViewModel @Inject constructor(
     fun refresh() {
         viewModelScope.launch {
             runStep {
-                dao.upsertFolders(gateway.scanFolders().map { it.toEntity() })
-                refreshFilesInternal(activeFolderId.value)
+                refreshMutex.withLock {
+                    refreshDriveInternal(activeFolderId.value)
+                }
+            }
+        }
+    }
+
+    fun refreshInBackground() {
+        viewModelScope.launch {
+            if (!refreshMutex.tryLock()) return@launch
+            try {
+                refreshDriveInternal(activeFolderId.value)
+            } catch (t: Throwable) {
+                Log.w("DriveViewModel", "Background refresh failed", t)
+            } finally {
+                refreshMutex.unlock()
             }
         }
     }
@@ -514,6 +532,11 @@ class DriveViewModel @Inject constructor(
 
     private fun refreshFiles(folderId: Long?) {
         viewModelScope.launch { runStep { refreshFilesInternal(folderId) } }
+    }
+
+    private suspend fun refreshDriveInternal(folderId: Long?) {
+        dao.upsertFolders(gateway.scanFolders().map { it.toEntity() })
+        refreshFilesInternal(folderId)
     }
 
     private suspend fun refreshFilesInternal(folderId: Long?) {

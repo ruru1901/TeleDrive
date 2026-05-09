@@ -3,7 +3,9 @@ package com.teledrive.android
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.util.Log
 import android.os.Build
+import androidx.work.Configuration
 import coil.Coil
 import coil.ImageLoader
 import coil.disk.DiskCache
@@ -11,7 +13,12 @@ import coil.memory.MemoryCache
 import dagger.hilt.android.HiltAndroidApp
 
 @HiltAndroidApp
-class TeleDriveApplication : Application() {
+class TeleDriveApplication : Application(), Configuration.Provider {
+    override val workManagerConfiguration: Configuration
+        get() = Configuration.Builder()
+            .setMinimumLoggingLevel(Log.INFO)
+            .build()
+
     override fun onCreate() {
         super.onCreate()
         configureCoil()

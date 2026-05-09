@@ -2,7 +2,9 @@ package com.teledrive.android.data
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import kotlinx.serialization.Serializable
 
+@Serializable
 @Entity(tableName = "key_entries")
 data class KeyEntry(
     @PrimaryKey val messageId: Long,

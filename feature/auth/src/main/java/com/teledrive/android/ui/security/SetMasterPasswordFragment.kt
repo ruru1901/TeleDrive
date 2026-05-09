@@ -71,12 +71,17 @@ fun SetMasterPasswordFragment(
                         password.isBlank() -> error = "Password is required"
                         password.length < 8 -> error = "Password must be at least 8 characters"
                         password != confirm -> error = "Passwords do not match"
+                        masterPasswordService == null -> error = "Security service is not available"
                         else -> {
                             busy = true
                             scope.launch {
                                 try {
-                                    masterPasswordService?.setMasterPassword(password)
-                                    onDismiss()
+                                    masterPasswordService.setMasterPassword(password)
+                                    if (masterPasswordService.isMasterPasswordSet()) {
+                                        onDismiss()
+                                    } else {
+                                        error = "Password was not saved. Please try again."
+                                    }
                                 } catch (e: Exception) {
                                     error = e.message ?: "Failed to set password"
                                 } finally {

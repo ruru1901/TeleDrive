@@ -253,6 +253,7 @@ when (authState.authState) {
               darkMode = darkMode,
               onToggleTheme = onToggleTheme,
               onRefresh = driveViewModel::refresh,
+              onBackgroundRefresh = driveViewModel::refreshInBackground,
               onSelectFolder = driveViewModel::selectFolder,
               onCreateFolder = driveViewModel::createFolder,
               onDeleteFolder = driveViewModel::deleteFolder,
@@ -558,6 +559,7 @@ private fun DashboardScreen(
     darkMode: Boolean,
     onToggleTheme: () -> Unit,
     onRefresh: () -> Unit,
+    onBackgroundRefresh: () -> Unit,
     onSelectFolder: (Long?) -> Unit,
     onCreateFolder: (String) -> Unit,
     onDeleteFolder: (Long) -> Unit,
@@ -585,11 +587,12 @@ private fun DashboardScreen(
     
      when (screenState) {
          Screen.Dashboard -> DashboardScaffold(
-             state = state,
-             darkMode = darkMode,
-             onToggleTheme = onToggleTheme,
-             onRefresh = onRefresh,
-             onSelectFolder = onSelectFolder,
+                    state = state,
+                    darkMode = darkMode,
+                    onToggleTheme = onToggleTheme,
+                    onRefresh = onRefresh,
+                    onBackgroundRefresh = onBackgroundRefresh,
+                    onSelectFolder = onSelectFolder,
              onCreateFolder = onCreateFolder,
              onDeleteFolder = onDeleteFolder,
              onQueryChange = onQueryChange,
@@ -792,6 +795,7 @@ private fun DashboardScaffold(
     darkMode: Boolean,
     onToggleTheme: () -> Unit,
     onRefresh: () -> Unit,
+    onBackgroundRefresh: () -> Unit,
     onSelectFolder: (Long?) -> Unit,
     onCreateFolder: (String) -> Unit,
     onDeleteFolder: (Long) -> Unit,
@@ -934,6 +938,14 @@ private fun DashboardScaffold(
                             }
                         }
                     }
+
+                    UploadProgressStrip(
+                        transfers = state.transfers,
+                        onCancelTransfer = driveViewModel::cancelTransfer,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
+                    )
                 }
 
                 if (state.busy && state.files.isEmpty()) {
@@ -946,20 +958,12 @@ private fun DashboardScaffold(
                     val isRefreshing = state.busy
                     val pullOffset = remember { Animatable(0f) }
                     val refreshThreshold = 120f
-                    
-                    LaunchedEffect(isRefreshing) {
-                        if (isRefreshing) {
-                            pullOffset.animateTo(refreshThreshold)
-                        } else {
-                            pullOffset.animateTo(0f)
-                        }
-                    }
-                    
+
                     // Pause auto-refresh while scrolling to prevent lag
-                    LaunchedEffect(onRefresh, state.busy, isScrolling) {
+                    LaunchedEffect(onBackgroundRefresh, state.busy, isScrolling) {
                         while (true) {
                             delay(autoRefreshIntervalMs)
-                            if (!state.busy && !isScrolling) onRefresh()
+                            if (!state.busy && !isScrolling) onBackgroundRefresh()
                         }
                     }
                     
@@ -971,6 +975,9 @@ private fun DashboardScaffold(
                                     onDragEnd = {
                                         if (pullOffset.value >= refreshThreshold && !isRefreshing) {
                                             onRefresh()
+                                        }
+                                        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+                                            pullOffset.animateTo(0f)
                                         }
                                     },
                                     onVerticalDrag = { _, dragAmount ->
@@ -1032,11 +1039,6 @@ private fun DashboardScaffold(
                             ),
                             verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
-                            if (fileTab == FileTab.Home && state.transfers.any { it.status == TransferStatus.Running || it.status == TransferStatus.Pending }) {
-                                item(key = "transfer_strip") {
-                                    TransferStrip(state.transfers, onCancelTransfer = driveViewModel::cancelTransfer)
-                                }
-                            }
                             item(key = "section_header") {
                                 FilesSectionHeader(
                                     selectedTab = fileTab,
@@ -2251,47 +2253,84 @@ private fun EmptyDrive(onUpload: () -> Unit) {
 }
 
 @Composable
-private fun TransferStrip(transfers: List<TransferEntity>, onCancelTransfer: ((String) -> Unit)? = null) {
-    val running = transfers.filter { it.status == TransferStatus.Running || it.status == TransferStatus.Pending }
-    if (running.isEmpty()) return
-    ElevatedCard(shape = RoundedCornerShape(20.dp)) {
+private fun UploadProgressStrip(
+    transfers: List<TransferEntity>,
+    onCancelTransfer: ((String) -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    val runningUploads = transfers.filter {
+        it.type == TransferType.Upload &&
+            (it.status == TransferStatus.Running || it.status == TransferStatus.Pending)
+    }
+    if (runningUploads.isEmpty()) return
+
+    ElevatedCard(
+        modifier = modifier,
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(16.dp),
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("Processes", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-            running.forEach { transfer ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    Icons.Default.CloudUpload,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp),
+                )
+                Text(
+                    if (runningUploads.size == 1) "Uploading file" else "Uploading ${runningUploads.size} files",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.weight(1f),
+                )
+                val averageProgress = runningUploads.map { it.progress }.average().toInt().coerceIn(0, 100)
+                Text(
+                    "$averageProgress%",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            runningUploads.forEach { transfer ->
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        CircularProgressIndicator(
+                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                transfer.fileName,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                "${transfer.progress}%",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        LinearProgressIndicator(
                             progress = { transfer.progress / 100f },
-                            modifier = Modifier.size(34.dp),
-                            strokeWidth = 2.dp,
-                        )
-                        Icon(
-                            if (transfer.type == TransferType.Upload) Icons.Default.CloudUpload else Icons.Default.CloudDownload,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.fillMaxWidth(),
                         )
                     }
-                    Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(transfer.fileName, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
-                        LinearProgressIndicator(progress = { transfer.progress / 100f }, modifier = Modifier.fillMaxWidth())
-                    }
-                    Text("${transfer.progress}%", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (onCancelTransfer != null) {
                         IconButton(onClick = { onCancelTransfer(transfer.id) }, modifier = Modifier.size(32.dp)) {
                             Icon(Icons.Default.Close, contentDescription = "Cancel", modifier = Modifier.size(18.dp))

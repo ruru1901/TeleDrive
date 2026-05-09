@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.provider.OpenableColumns
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import kotlinx.coroutines.Dispatchers
@@ -215,37 +216,34 @@ class TdLibTelegramGateway(
     ): Flow<TransferProgress> = flow {
         emit(TransferProgress(0))
         ensureReady()
+        val sourceSize = contentLength(source)
+        if (sourceSize > LARGE_FILE_THRESHOLD) {
+            ChunkUploader(
+                context = context,
+                uploadChunk = { chunkFile, chunkName, caption ->
+                    uploadPreparedFile(chunkFile, chunkName, folderId, caption)
+                },
+                sendManifest = { manifest ->
+                    sendMessage(manifest.toJson(), folderId)
+                },
+            ).upload(
+                source = source,
+                displayName = displayName,
+                originalSize = sourceSize,
+                mimeType = context.contentResolver.getType(source),
+            ).collect { emit(it) }
+            return@flow
+        }
+
         val file = copyUriToUploadCache(source, displayName)
         val chatId = resolveChatId(folderId)
 
-        val localFile = reflection.newObject("InputFileLocal").also {
-            reflection.setIfPresent(it, "path", file.absolutePath)
-        }
         val captionText = if (backupPath != null) {
             "backup/$backupPath"
         } else {
             metadataCaption(displayName, file.length(), context.contentResolver.getType(source))
         }
-        val caption = reflection.newObject("FormattedText").also {
-            reflection.setIfPresent(it, "text", captionText)
-            reflection.setIfPresent(it, "entities", emptyArray<Any>())
-        }
-        val content = reflection.newObject("InputMessageDocument").also {
-            reflection.setIfPresent(it, "document", localFile)
-            reflection.setIfPresent(it, "thumbnail", null)
-            reflection.setIfPresent(it, "disableContentTypeDetection", false)
-            reflection.setIfPresent(it, "caption", caption)
-        }
-        val function = reflection.newFunction("SendMessage").also {
-            reflection.setIfPresent(it, "chatId", chatId)
-            reflection.setIfPresent(it, "messageThreadId", 0L)
-            reflection.setIfPresent(it, "replyTo", null)
-            reflection.setIfPresent(it, "options", null)
-            reflection.setIfPresent(it, "replyMarkup", null)
-            reflection.setIfPresent(it, "inputMessageContent", content)
-        }
-
-        val sentMessage = send(function)
+        val sentMessage = sendDocumentMessage(file, displayName, chatId, captionText)
         val messageId = reflection.longField(sentMessage, "id") ?: 0L
         emit(TransferProgress(progress = 10, messageId = messageId))
         waitForUploadCompletion(sentMessage, file.length()).collect { progress ->
@@ -267,10 +265,18 @@ class TdLibTelegramGateway(
         ensureReady()
         val chatId = resolveChatId(folderId)
         val message = getMessage(chatId, messageId)
-        val fileInfo = message?.let { messageToFile(it, folderId) }
+        val chunkManifest = message?.let(::messageChunkManifest)
+        if (chunkManifest != null) {
+            ChunkDownloader(context.cacheDir, this@TdLibTelegramGateway, folderId)
+                .download(chunkManifest)
+                .collect { emit(it) }
+            return@flow
+        }
+        val isChunkPart = message?.let(::messageIsChunkPart) == true
+        val fileInfo = if (isChunkPart) null else message?.let { messageToFile(it, folderId) }
         val rawFile = message?.let(::messageRawFile)
         val fileId = rawFile?.let { reflection.intField(it, "id") }
-        if (message == null || fileInfo == null || fileId == null) {
+        if (message == null || (!isChunkPart && fileInfo == null) || fileId == null) {
             emit(TransferProgress(progress = 0, done = false, error = "No downloadable file found."))
             return@flow
         }
@@ -294,7 +300,7 @@ class TdLibTelegramGateway(
             while (System.currentTimeMillis() < deadline) {
                 val state = observeFileState(fileId).value
                 val path = state.localPath
-                val expectedSize = state.expectedSize.takeIf { it > 0 } ?: fileInfo.size
+                val expectedSize = state.expectedSize.takeIf { it > 0 } ?: fileInfo?.size ?: fileSize(rawFile)
                 val downloadedSize = state.downloadedSize
 
                 if (state.isCompleted && path != null && File(path).exists()) {
@@ -343,8 +349,13 @@ class TdLibTelegramGateway(
             return@flow
         }
 
+        if (isChunkPart) {
+            emit(TransferProgress(progress = 100, done = true, localPath = sourcePath))
+            return@flow
+        }
+
         withContext(Dispatchers.IO) {
-            copyToDownloads(File(sourcePath), fileInfo.name, fileInfo.mimeType, destination)
+            copyToDownloads(File(sourcePath), requireNotNull(fileInfo).name, fileInfo.mimeType, destination)
         }
         emit(TransferProgress(progress = 100, done = true))
     }
@@ -750,8 +761,20 @@ class TdLibTelegramGateway(
         val messageId = reflection.longField(message, "id") ?: return null
         val dateSeconds = reflection.intField(message, "date") ?: 0
         val content = reflection.field(message, "content") ?: return null
+        messageChunkManifest(message)?.let { manifest ->
+            return TelegramFile(
+                messageId = messageId,
+                folderId = folderId,
+                name = manifest.originalFileName,
+                size = manifest.originalSize,
+                mimeType = manifest.mimeType,
+                extension = manifest.originalFileName.substringAfterLast('.', missingDelimiterValue = "").ifBlank { null },
+                createdAt = dateSeconds * 1000L,
+            )
+        }
         val media = extractMedia(content) ?: return null
         val captionMetadata = captionMetadata(content)
+        if (captionMetadata?.isChunk == true) return null
         val resolvedName = captionMetadata?.name ?: media.name.ifBlank { defaultName(content, messageId) }
         val rawFile = messageRawFile(message)
         val tdFileId = rawFile?.let { reflection.intField(it, "id") }
@@ -785,6 +808,9 @@ class TdLibTelegramGateway(
         val caption = reflection.field(content, "caption") ?: return null
         val text = reflection.stringField(caption, "text")?.trim().orEmpty()
         if (text.isBlank()) return null
+        if (ChunkManifest.isChunkCaption(text)) {
+            return StoredMetadata(isChunk = true)
+        }
         return runCatching {
             val json = JSONObject(text)
             StoredMetadata(
@@ -929,6 +955,81 @@ class TdLibTelegramGateway(
         return target
     }
 
+    private suspend fun uploadPreparedFile(
+        file: File,
+        displayName: String,
+        folderId: Long?,
+        captionText: String,
+    ): Long {
+        val sentMessage = sendDocumentMessage(file, displayName, resolveChatId(folderId), captionText)
+        val messageId = reflection.longField(sentMessage, "id") ?: error("Failed to send chunk")
+        waitForUploadCompletion(sentMessage, file.length()).collect { }
+        return messageId
+    }
+
+    private suspend fun sendDocumentMessage(
+        file: File,
+        displayName: String,
+        chatId: Long,
+        captionText: String,
+    ): Any {
+        val localFile = reflection.newObject("InputFileLocal").also {
+            reflection.setIfPresent(it, "path", file.absolutePath)
+        }
+        val caption = reflection.newObject("FormattedText").also {
+            reflection.setIfPresent(it, "text", captionText)
+            reflection.setIfPresent(it, "entities", emptyArray<Any>())
+        }
+        val content = reflection.newObject("InputMessageDocument").also {
+            reflection.setIfPresent(it, "document", localFile)
+            reflection.setIfPresent(it, "thumbnail", null)
+            reflection.setIfPresent(it, "disableContentTypeDetection", false)
+            reflection.setIfPresent(it, "caption", caption)
+        }
+        val function = reflection.newFunction("SendMessage").also {
+            reflection.setIfPresent(it, "chatId", chatId)
+            reflection.setIfPresent(it, "messageThreadId", 0L)
+            reflection.setIfPresent(it, "replyTo", null)
+            reflection.setIfPresent(it, "options", null)
+            reflection.setIfPresent(it, "replyMarkup", null)
+            reflection.setIfPresent(it, "inputMessageContent", content)
+        }
+        return send(function)
+    }
+
+    private fun contentLength(uri: Uri): Long {
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null).use { cursor ->
+            if (cursor != null && cursor.moveToFirst()) {
+                val index = cursor.getColumnIndex(OpenableColumns.SIZE)
+                if (index >= 0 && !cursor.isNull(index)) return cursor.getLong(index)
+            }
+        }
+        return runCatching {
+            context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length }
+        }.getOrNull()?.takeIf { it >= 0 } ?: 0L
+    }
+
+    private fun messageChunkManifest(message: Any): ChunkManifest? {
+        val content = reflection.field(message, "content") ?: return null
+        if (reflection.simpleName(content) != "MessageText") return null
+        val text = formattedTextString(reflection.field(content, "text")) ?: return null
+        return ChunkManifest.fromJson(text)
+    }
+
+    private fun messageIsChunkPart(message: Any): Boolean {
+        val content = reflection.field(message, "content") ?: return false
+        val caption = reflection.field(content, "caption") ?: return false
+        val text = reflection.stringField(caption, "text")?.trim().orEmpty()
+        return text.isNotBlank() && ChunkManifest.isChunkCaption(text)
+    }
+
+    private fun formattedTextString(value: Any?): String? =
+        when (value) {
+            is String -> value
+            null -> null
+            else -> reflection.stringField(value, "text")
+        }
+
     private fun copyToDownloads(source: File, displayName: String, mimeType: String?, destination: Uri? = null) {
         val safeName = displayName.ifBlank { source.name }
             .replace(Regex("""[\\/:*?"<>|]"""), "_")
@@ -1009,9 +1110,10 @@ class TdLibTelegramGateway(
     )
 
     private data class StoredMetadata(
-        val name: String?,
-        val size: Long?,
-        val mimeType: String?,
+        val name: String? = null,
+        val size: Long? = null,
+        val mimeType: String? = null,
+        val isChunk: Boolean = false,
     )
 
     // Backup-specific operations
@@ -1102,6 +1204,7 @@ class TdLibTelegramGateway(
         private const val CAPTION_FILE_NAME_KEY = "td_name"
         private const val CAPTION_SIZE_KEY = "td_size"
         private const val CAPTION_MIME_TYPE_KEY = "td_mime"
+        private const val LARGE_FILE_THRESHOLD = 2_000_000_000L
 
         fun isAvailable(): Boolean =
             TdLibReflection.availableOrNull() != null

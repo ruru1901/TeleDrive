@@ -168,7 +168,7 @@ TeleDrive is built with cutting-edge Android technologies:
 ### 🔐 Security Layer
 - **AndroidX Security Crypto** - Encrypted SharedPreferences
 - **Argon2kt** - Password hashing
-- **Libsodium** - Cryptographic operations
+- **Libsodium** - XChaCha20-Poly1305 (IETF) cryptographic operations
 - **Biometric API** - Fingerprint/face authentication
 
 ### 🌐 Network Layer
@@ -378,6 +378,10 @@ TeleDrive includes comprehensive unit tests:
 - ✅ **Preview cache policy** - Tests cache eviction logic
 - ✅ **Backup manifest management** - Validates backup metadata
 - ✅ **TDLib availability checks** - Tests reflection-based detection
+- ✅ **GhostCryptoTest** - Verifies encryption round-trip and tamper detection
+- ✅ **TeleDriveDaoTest** - Verifies Room file and transfer persistence
+- ✅ **BackupManifestTest** - Verifies SHA-256 change detection
+- ✅ **DriveViewModelIntegrationTest** - Verifies upload refresh integration
 
 ---
 
@@ -392,6 +396,7 @@ TeleDrive includes comprehensive unit tests:
 - ✅ Master password encryption
 - ✅ Biometric authentication
 - ✅ Automatic backups
+- ✅ Background-safe WorkManager upload/download workers
 - ✅ TDLib integration
 - ✅ Material Design 3 UI
 - ✅ Dark mode support
@@ -428,7 +433,7 @@ TeleDrive includes comprehensive unit tests:
 
 **TDLib Integration Status:**
 - ⚠️ TDLib authentication flow needs manual device validation
-- ⚠️ Upload/download progress currently simulated (needs TDLib file update events)
+- ⚠️ TDLib file update events wired; real transfer progress via UpdateFile handler
 - ⚠️ Search uses local Room filtering (TDLib global search API not yet integrated)
 - ⚠️ Downloaded files not yet exported to user-selected destinations
 
@@ -437,12 +442,10 @@ TeleDrive includes comprehensive unit tests:
 - ⏳ Video/audio player screen
 - ⏳ PDF viewer using Android PDF renderer
 - ⏳ Cache cleanup settings UI
-- ⏳ Background-safe WorkManager upload/download workers
 - ⏳ Notifications for long-running transfers
 
 **Testing Gaps:**
 - 🧪 TDLib runtime integration tests on emulator/device
-- 🧪 Room DAO tests
 - 🧪 Compose UI tests for onboarding and dashboard flows
 - 🧪 Android instrumentation tests for file picker, preview, and download/share flows
 

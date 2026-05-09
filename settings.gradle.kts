@@ -17,3 +17,9 @@ dependencyResolutionManagement {
 
 rootProject.name = "TeleDrive"
 include(":app")
+include(":core:data")
+include(":core:telegram")
+include(":core:crypto")
+include(":feature:auth")
+include(":feature:backup")
+include(":feature:drive")

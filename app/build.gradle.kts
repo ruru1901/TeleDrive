@@ -80,6 +80,10 @@ android {
 }
 
 dependencies {
+    implementation(project(":feature:auth"))
+    implementation(project(":feature:backup"))
+    implementation(project(":feature:drive"))
+
     implementation(libs.material)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.core.ktx)

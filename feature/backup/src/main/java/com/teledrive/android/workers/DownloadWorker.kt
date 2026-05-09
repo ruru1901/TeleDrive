@@ -41,15 +41,16 @@ class DownloadWorker(
                 gateway.downloadFileTo(messageId, folderId, destination)
             }
             flow.collect { progress ->
+                val progressError = progress.error
                 setProgress(
                     workDataOf(
                         KEY_PROGRESS to progress.progress,
-                        KEY_ERROR to progress.error,
+                        KEY_ERROR to progressError,
                         KEY_LOCAL_PATH to progress.localPath,
                     ),
                 )
                 if (progress.localPath != null) localPath = progress.localPath
-                if (progress.error != null) error(progress.error)
+                if (progressError != null) error(progressError)
             }
         }.fold(
             onSuccess = {

@@ -39,14 +39,15 @@ class UploadWorker(
         var messageId: Long? = null
         runCatching {
             gateway.uploadFile(uri, name, folderId, backupPath).collect { progress ->
+                val progressError = progress.error
                 setProgress(
                     workDataOf(
                         KEY_PROGRESS to progress.progress,
-                        KEY_ERROR to progress.error,
+                        KEY_ERROR to progressError,
                     ),
                 )
                 if (progress.messageId != null) messageId = progress.messageId
-                if (progress.error != null) error(progress.error)
+                if (progressError != null) error(progressError)
             }
         }.fold(
             onSuccess = {

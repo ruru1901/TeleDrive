@@ -6,8 +6,12 @@ import android.net.Uri
 import android.os.Environment
 import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
+import androidx.work.workDataOf
 import com.teledrive.android.crypto.GhostCrypto
 import com.teledrive.android.data.FileEntity
 import com.teledrive.android.data.FolderEntity
@@ -23,6 +27,10 @@ import com.teledrive.android.telegram.TelegramGateway
 import com.teledrive.android.repository.KeystoreRepository
 import com.teledrive.android.MasterPasswordService
 import com.teledrive.android.secure.SecureSettings
+import com.teledrive.android.workers.DownloadWorker
+import com.teledrive.android.workers.UploadWorker
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import androidx.compose.runtime.mutableStateMapOf
@@ -46,9 +54,9 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
-import javax.inject.Inject
 
 @OptIn(ExperimentalCoroutinesApi::class)
+@HiltViewModel
 class DriveViewModel @Inject constructor(
     private val context: Context,
     database: TeleDriveDatabase,
@@ -58,6 +66,7 @@ class DriveViewModel @Inject constructor(
     val masterPasswordService: MasterPasswordService? = null,
 ) : ViewModel() {
     private val dao = database.dao()
+    private val workManager by lazy { WorkManager.getInstance(context) }
     private val activeFolderId = MutableStateFlow<Long?>(null)
     private val query = MutableStateFlow("")
     private val busy = MutableStateFlow(false)
@@ -257,41 +266,58 @@ class DriveViewModel @Inject constructor(
                 ),
             )
             try {
-                var uploadedMessageId: Long? = null
-                withContext(Dispatchers.IO) {
-                    if (encrypt) {
-                        val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                            ?: throw IllegalStateException("Unable to open selected file.")
-                        val cryptoResult = GhostCrypto.encryptFile(bytes)
-                        val packed = GhostCrypto.packGhostFile(cryptoResult.nonce, cryptoResult.ciphertext)
+                val uploadUri: Uri
+                val uploadName: String
+                val cryptoResult = if (encrypt) {
+                    val bytes = withContext(Dispatchers.IO) {
+                        context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    } ?: throw IllegalStateException("Unable to open selected file.")
+                    GhostCrypto.encryptFile(bytes).also { result ->
+                        val packed = GhostCrypto.packGhostFile(result.nonce, result.ciphertext)
                         val encryptedFile = File(context.cacheDir, "${displayName}.ghost")
-                        FileOutputStream(encryptedFile).use { it.write(packed) }
-                        val encryptedUri = Uri.fromFile(encryptedFile)
-                        gateway.uploadFile(encryptedUri, "${displayName}.ghost", folderId, null).collect { progress ->
-                            if (progress.done && progress.error == null) {
-                                uploadedMessageId = progress.messageId
-                            }
+                        withContext(Dispatchers.IO) {
+                            FileOutputStream(encryptedFile).use { it.write(packed) }
                         }
-                        val msgId = uploadedMessageId ?: throw IllegalStateException("Upload failed")
-                        keystoreRepository?.saveKey(KeyEntry(
+                        uploadUri = Uri.fromFile(encryptedFile)
+                        uploadName = "${displayName}.ghost"
+                    }
+                } else {
+                    uploadUri = uri
+                    uploadName = displayName
+                    null
+                }
+
+                dao.upsertTransfer(
+                    TransferEntity(
+                        id = transferId,
+                        type = TransferType.Upload,
+                        fileName = displayName,
+                        folderId = folderId,
+                        messageId = null,
+                        status = TransferStatus.Running,
+                        progress = 0,
+                        error = null,
+                    ),
+                )
+                val msgId = enqueueUploadWork(
+                    transferId = transferId,
+                    uri = uploadUri,
+                    displayName = uploadName,
+                    folderId = folderId,
+                )
+                if (cryptoResult != null) {
+                    keystoreRepository?.saveKey(
+                        KeyEntry(
                             messageId = msgId,
                             keyBase64 = cryptoResult.keyBase64,
                             originalFilename = displayName,
                             originalMime = context.contentResolver.getType(uri) ?: "application/octet-stream",
                             uploadedAt = System.currentTimeMillis(),
                             isEncrypted = true,
-                        ))
-                        masterPasswordService?.syncKeystore()
-                    } else {
-                        gateway.uploadFile(uri, displayName, folderId, null).collect { progress ->
-                            if (progress.done && progress.error == null) {
-                                uploadedMessageId = progress.messageId
-                            }
-                        }
-                        if (uploadedMessageId == null) throw IllegalStateException("Upload failed")
-                    }
+                        ),
+                    )
+                    masterPasswordService?.syncKeystore()
                 }
-                val msgId = uploadedMessageId ?: throw IllegalStateException("Upload failed")
                 dao.upsertTransfer(
                     TransferEntity(
                         id = transferId,
@@ -345,30 +371,24 @@ class DriveViewModel @Inject constructor(
             )
             try {
                 var lastLocalPath: String? = null
-                val flow = if (destination == null) gateway.downloadFile(file.messageId, file.folderId)
-                           else gateway.downloadFileTo(file.messageId, file.folderId, destination)
-                var completed = false
-                flow.collect { progress ->
-                    dao.upsertTransfer(
-                        TransferEntity(
-                            id = transferId,
-                            type = TransferType.Download,
-                            fileName = file.name,
-                            folderId = file.folderId,
-                            messageId = file.messageId,
-                            status = when {
-                                progress.error != null -> TransferStatus.Error
-                                progress.done -> TransferStatus.Success
-                                else -> TransferStatus.Running
-                            },
-                            progress = progress.progress,
-                            error = progress.error,
-                        ),
-                    )
-                    if (progress.localPath != null) lastLocalPath = progress.localPath
-                    completed = progress.done && progress.error == null
-                }
-                if (completed) {
+                dao.upsertTransfer(
+                    TransferEntity(
+                        id = transferId,
+                        type = TransferType.Download,
+                        fileName = file.name,
+                        folderId = file.folderId,
+                        messageId = file.messageId,
+                        status = TransferStatus.Running,
+                        progress = 0,
+                        error = null,
+                    ),
+                )
+                lastLocalPath = enqueueDownloadWork(
+                    transferId = transferId,
+                    file = file,
+                    destination = destination,
+                )
+                if (lastLocalPath != null || destination != null) {
                     val isEncrypted = file.name.endsWith(".ghost") && file.caption?.contains("#ghost_enc") == true
                     if (isEncrypted && lastLocalPath != null) {
                         val keyEntry = keystoreRepository?.getKey(file.messageId)
@@ -544,6 +564,104 @@ class DriveViewModel @Inject constructor(
         message.value = null
         try { block() } catch (t: Throwable) { message.value = t.message ?: "Operation failed." } finally { busy.value = false }
     }
+
+    private suspend fun enqueueUploadWork(
+        transferId: String,
+        uri: Uri,
+        displayName: String,
+        folderId: Long?,
+    ): Long {
+        val request = OneTimeWorkRequestBuilder<UploadWorker>()
+            .setInputData(
+                workDataOf(
+                    UploadWorker.KEY_URI to uri.toString(),
+                    UploadWorker.KEY_NAME to displayName,
+                    UploadWorker.KEY_FOLDER_ID to (folderId ?: UploadWorker.NULL_FOLDER_ID),
+                ),
+            )
+            .build()
+        workManager.enqueueUniqueWork("upload_$transferId", ExistingWorkPolicy.KEEP, request)
+        val info = awaitTransferWork(
+            request.id,
+            transferId,
+            TransferType.Upload,
+            displayName,
+            folderId,
+            null,
+        )
+        if (info.state != WorkInfo.State.SUCCEEDED) {
+            throw IllegalStateException(info.outputData.getString(UploadWorker.KEY_ERROR) ?: "Upload failed")
+        }
+        val messageId = info.outputData.getLong(UploadWorker.KEY_MESSAGE_ID, UploadWorker.NULL_MESSAGE_ID)
+        if (messageId == UploadWorker.NULL_MESSAGE_ID) throw IllegalStateException("Upload failed")
+        return messageId
+    }
+
+    private suspend fun enqueueDownloadWork(
+        transferId: String,
+        file: FileEntity,
+        destination: Uri?,
+    ): String? {
+        val request = OneTimeWorkRequestBuilder<DownloadWorker>()
+            .setInputData(
+                workDataOf(
+                    DownloadWorker.KEY_MESSAGE_ID to file.messageId,
+                    DownloadWorker.KEY_FOLDER_ID to (file.folderId ?: UploadWorker.NULL_FOLDER_ID),
+                    DownloadWorker.KEY_DESTINATION_URI to destination?.toString(),
+                ),
+            )
+            .build()
+        workManager.enqueueUniqueWork("download_$transferId", ExistingWorkPolicy.KEEP, request)
+        val info = awaitTransferWork(
+            request.id,
+            transferId,
+            TransferType.Download,
+            file.name,
+            file.folderId,
+            file.messageId,
+        )
+        if (info.state != WorkInfo.State.SUCCEEDED) {
+            throw IllegalStateException(info.outputData.getString(DownloadWorker.KEY_ERROR) ?: "Download failed")
+        }
+        return info.outputData.getString(DownloadWorker.KEY_LOCAL_PATH)
+    }
+
+    private suspend fun awaitTransferWork(
+        workId: UUID,
+        transferId: String,
+        type: TransferType,
+        fileName: String,
+        folderId: Long?,
+        messageId: Long?,
+    ): WorkInfo {
+        while (true) {
+            val info = withContext(Dispatchers.IO) { workManager.getWorkInfoById(workId).get() }
+            if (info == null) {
+                delay(250)
+                continue
+            }
+            val progress = info.progress.getInt(UploadWorker.KEY_PROGRESS, 0)
+            val error = info.progress.getString(UploadWorker.KEY_ERROR)
+            dao.upsertTransfer(
+                TransferEntity(
+                    id = transferId,
+                    type = type,
+                    fileName = fileName,
+                    folderId = folderId,
+                    messageId = messageId,
+                    status = when {
+                        info.state == WorkInfo.State.SUCCEEDED -> TransferStatus.Success
+                        info.state == WorkInfo.State.FAILED || info.state == WorkInfo.State.CANCELLED -> TransferStatus.Error
+                        else -> TransferStatus.Running
+                    },
+                    progress = if (info.state == WorkInfo.State.SUCCEEDED) 100 else progress,
+                    error = error ?: info.outputData.getString(UploadWorker.KEY_ERROR),
+                ),
+            )
+            if (info.state.isFinished) return info
+            delay(250)
+        }
+    }
 }
 
 @androidx.compose.runtime.Immutable
@@ -573,21 +691,3 @@ private fun decodeThumbnailBase64(encoded: String): ImageBitmap? = runCatching {
     val bitmap: android.graphics.Bitmap? = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
     bitmap?.asImageBitmap()
 }.getOrNull()
-
-class DriveViewModelFactory(
-    private val database: TeleDriveDatabase,
-    private val gateway: TelegramGateway,
-    private val backupManager: com.teledrive.android.backup.BackupManager,
-    private val secureSettings: SecureSettings? = null,
-    private val context: Context? = null,
-) : ViewModelProvider.Factory {
-    @Suppress("UNCHECKED_CAST")
-    override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        val ctx = context ?: throw IllegalStateException("Context required")
-        val keystoreRepo = KeystoreRepository(database.keyEntryDao())
-        val masterPwService = secureSettings?.let {
-            MasterPasswordService(ctx, keystoreRepo, it, gateway)
-        }
-        return DriveViewModel(ctx, database, gateway, backupManager, keystoreRepo, masterPwService) as T
-    }
-}

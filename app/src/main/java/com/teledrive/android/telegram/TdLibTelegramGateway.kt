@@ -12,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -23,6 +24,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import java.util.Locale
 import org.json.JSONObject
 import kotlin.coroutines.resume
@@ -65,9 +67,11 @@ class TdLibTelegramGateway(
         val downloadedSize: Long = 0L,
         val expectedSize: Long = 0L,
         val isCompleted: Boolean = false,
+        val uploadedSize: Long = 0L,
+        val isUploadingCompleted: Boolean = false,
     )
 
-    private val fileStates = mutableMapOf<Int, MutableStateFlow<FileState>>()
+    private val fileStates = ConcurrentHashMap<Int, MutableStateFlow<FileState>>()
     private val fileStatesLock = Any()
 
     override suspend fun configure(apiId: Int, apiHash: String) {
@@ -275,13 +279,17 @@ class TdLibTelegramGateway(
             resetLocalFile(fileId)
         }
         val localBefore = localPath(rawFile)?.takeIf { File(it).exists() }
+
         val sourcePath = localBefore ?: run {
             emit(TransferProgress(progress = 10))
-            requestDownload(fileId)
+            send(reflection.newFunction("DownloadFile").also {
+                reflection.setIfPresent(it, "fileId", fileId)
+                reflection.setIfPresent(it, "priority", 1)
+            })
+
             val deadline = System.currentTimeMillis() + 120_000
             var lastProgress = 10
-            var resetStaleLocalFile = false
-            var lastPollAt = 0L
+            var downloadedCompletePath: String? = null
 
             while (System.currentTimeMillis() < deadline) {
                 val state = observeFileState(fileId).value
@@ -289,20 +297,24 @@ class TdLibTelegramGateway(
                 val expectedSize = state.expectedSize.takeIf { it > 0 } ?: fileInfo.size
                 val downloadedSize = state.downloadedSize
 
-                if (!resetStaleLocalFile && state.isCompleted && path != null && !File(path).exists()) {
-                    resetStaleLocalFile = true
-                    resetLocalFile(fileId)
-                    requestDownload(fileId)
-                    emit(TransferProgress(progress = 10))
-                    delay(500)
-                    continue
+                if (state.isCompleted && path != null && File(path).exists()) {
+                    emit(
+                        TransferProgress(
+                            progress = 80,
+                            localPath = path,
+                            downloadedBytes = downloadedSize,
+                            totalBytes = expectedSize.takeIf { it > 0 },
+                        ),
+                    )
+                    downloadedCompletePath = path
+                    break
                 }
 
-                val nextProgress = if (expectedSize > 0) {
+                val nextProgress = if (expectedSize > 0 && downloadedSize > 0) {
                     (10 + ((downloadedSize.coerceAtMost(expectedSize) * 70) / expectedSize)).toInt()
                         .coerceIn(10, 80)
                 } else {
-                    (lastProgress + 5).coerceAtMost(75)
+                    lastProgress
                 }
                 if (nextProgress > lastProgress) {
                     lastProgress = nextProgress
@@ -316,29 +328,10 @@ class TdLibTelegramGateway(
                     )
                 }
 
-                if (state.isCompleted && path != null && File(path).exists()) {
-                    emit(
-                        TransferProgress(
-                            progress = 80,
-                            localPath = path,
-                            downloadedBytes = downloadedSize,
-                            totalBytes = expectedSize.takeIf { it > 0 },
-                        ),
-                    )
-                    break
-                }
-
-                // Fallback: if UpdateFile updates are not arriving, poll periodically.
-                val now = System.currentTimeMillis()
-                if (now - lastPollAt > 2_000) {
-                    lastPollAt = now
-                    runCatching { getFile(fileId)?.let(::handleFileUpdate) }
-                }
-
                 delay(500)
             }
 
-            awaitDownloadPath(fileId, timeoutMs = 2_000)
+            downloadedCompletePath ?: awaitDownloadPath(fileId, timeoutMs = 2_000)
                 ?: getMessage(chatId, messageId)
                     ?.let(::messageRawFile)
                     ?.let(::localPath)
@@ -420,17 +413,24 @@ class TdLibTelegramGateway(
 
     private fun handleFileUpdate(file: Any) {
         val fileId = reflection.intField(file, "id") ?: return
+        val local = reflection.field(file, "local")
+        val downloadedPrefixSize = local?.let { reflection.longField(it, "downloadedPrefixSize") } ?: 0L
+        val isCompleted = local?.let { reflection.booleanField(it, "isDownloadingCompleted") == true } ?: false
+        val localPath = local?.let { reflection.stringField(it, "path")?.takeIf { it.isNotBlank() } }
         val expectedSize = fileSize(file)
-        val localPath = localPath(file)
-        val downloadedSize = localDownloadedSize(file)
-        val isCompleted = isLocalDownloadComplete(file)
+
+        val remote = reflection.field(file, "remote")
+        val uploadedSize = remote?.let { reflection.longField(it, "uploadedSize") } ?: 0L
+        val isUploadingCompleted = remote?.let { reflection.booleanField(it, "isUploadingCompleted") == true } ?: false
 
         val state = FileState(
             fileId = fileId,
             localPath = localPath,
-            downloadedSize = downloadedSize,
+            downloadedSize = downloadedPrefixSize,
             expectedSize = expectedSize,
             isCompleted = isCompleted,
+            uploadedSize = uploadedSize,
+            isUploadingCompleted = isUploadingCompleted,
         )
         flowForFile(fileId).value = state
     }
@@ -718,26 +718,20 @@ class TdLibTelegramGateway(
     private fun waitForUploadCompletion(message: Any, sourceSize: Long): Flow<TransferProgress> = flow {
         val initialFile = messageRawFile(message) ?: return@flow
         val fileId = reflection.intField(initialFile, "id")
+        if (fileId == null) return@flow
         val deadline = System.currentTimeMillis() + 6 * 60 * 60 * 1000L
         var lastProgress = 10
-        var currentFile = initialFile
 
         while (System.currentTimeMillis() < deadline) {
-            if (fileId != null) {
-                currentFile = getFile(fileId) ?: currentFile
-            }
-            val remote = reflection.field(currentFile, "remote")
-            val uploadedSize = remote?.let { reflection.longField(it, "uploadedSize") } ?: 0L
-            val isComplete = remote?.let { reflection.booleanField(it, "isUploadingCompleted") } == true
-            val isActive = remote?.let { reflection.booleanField(it, "isUploadingActive") } == true
+            val state = observeFileState(fileId).value
+            val uploadedSize = state.uploadedSize
+            val isComplete = state.isUploadingCompleted
+
             val nextProgress = if (sourceSize > 0 && uploadedSize > 0) {
                 (10 + ((uploadedSize.coerceAtMost(sourceSize) * 85) / sourceSize)).toInt().coerceIn(10, 95)
-            } else if (isActive) {
-                (lastProgress + 1).coerceAtMost(95)
             } else {
                 lastProgress
             }
-
             if (nextProgress > lastProgress) {
                 lastProgress = nextProgress
                 emit(TransferProgress(progress = lastProgress))

@@ -1824,6 +1824,8 @@ private fun BackupSettingsSheet(
     onRunBackupNow: () -> Unit,
     onRestoreAll: () -> Unit,
 ) {
+    var draft by remember { mutableStateOf(settings) }
+
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
             modifier = Modifier
@@ -1838,33 +1840,33 @@ private fun BackupSettingsSheet(
             SettingSwitchRow(
                 title = "Enable backup",
                 subtitle = "Allow TeleDrive to manage automatic backups",
-                checked = settings.enabled,
-                onCheckedChange = { onUpdate(settings.copy(enabled = it)) },
+                checked = draft.enabled,
+                onCheckedChange = { draft = draft.copy(enabled = it) },
             )
             SectionTitle("Backup scope")
             ChoiceChips(
                 options = BackupScope.entries.map { it to it.label },
-                selected = settings.scope,
-                onSelect = { onUpdate(settings.copy(scope = it)) },
+                selected = draft.scope,
+                onSelect = { draft = draft.copy(scope = it) },
             )
 
             SectionTitle("Backup mode")
             ChoiceChips(
                 options = BackupMode.entries.map { it to it.label },
-                selected = settings.mode,
-                onSelect = { onUpdate(settings.copy(mode = it)) },
+                selected = draft.mode,
+                onSelect = { draft = draft.copy(mode = it) },
             )
 
             SectionTitle("Folders to back up")
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 BackupFolder.entries.forEach { folder ->
                     FilterChip(
-                        selected = folder in settings.folders,
+                        selected = folder in draft.folders,
                         onClick = {
-                            val next = settings.folders.toMutableSet().apply {
+                            val next = draft.folders.toMutableSet().apply {
                                 if (contains(folder)) remove(folder) else add(folder)
                             }
-                            onUpdate(settings.copy(folders = next))
+                            draft = draft.copy(folders = next)
                         },
                         label = { Text(folder.label) },
                         leadingIcon = {
@@ -1878,29 +1880,29 @@ private fun BackupSettingsSheet(
             SettingSwitchRow(
                 title = "Wi-Fi only",
                 subtitle = "Avoid mobile data for automatic backup",
-                checked = settings.wifiOnly,
-                onCheckedChange = { onUpdate(settings.copy(wifiOnly = it)) },
+                checked = draft.wifiOnly,
+                onCheckedChange = { draft = draft.copy(wifiOnly = it) },
                 icon = Icons.Outlined.Wifi,
             )
             SettingSwitchRow(
                 title = "Only while charging",
                 subtitle = "Keep large backup jobs off battery",
-                checked = settings.chargingOnly,
-                onCheckedChange = { onUpdate(settings.copy(chargingOnly = it)) },
+                checked = draft.chargingOnly,
+                onCheckedChange = { draft = draft.copy(chargingOnly = it) },
                 icon = Icons.Outlined.Bolt,
             )
             SettingSwitchRow(
                 title = "Instant when new files appear",
                 subtitle = "Try to back up newly detected files as they arrive",
-                checked = settings.instantBackup,
-                onCheckedChange = { onUpdate(settings.copy(instantBackup = it)) },
+                checked = draft.instantBackup,
+                onCheckedChange = { draft = draft.copy(instantBackup = it) },
                 icon = Icons.Outlined.CheckCircle,
             )
             SettingSwitchRow(
                 title = "Daily backup sweep",
                 subtitle = "Run a broader periodic scan for missed files",
-                checked = settings.dailyBackup,
-                onCheckedChange = { onUpdate(settings.copy(dailyBackup = it)) },
+                checked = draft.dailyBackup,
+                onCheckedChange = { draft = draft.copy(dailyBackup = it) },
                 icon = Icons.Outlined.Collections,
             )
 
@@ -1943,6 +1945,20 @@ private fun BackupSettingsSheet(
                     Icon(Icons.Default.Sync, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text("Sync now")
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) {
+                    Text("Cancel")
+                }
+                Button(
+                    onClick = {
+                        onUpdate(draft)
+                        onDismiss()
+                    },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("Save")
                 }
             }
             Spacer(Modifier.height(8.dp))

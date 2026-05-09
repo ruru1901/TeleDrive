@@ -5,11 +5,16 @@ composeBom = "2025.05.00"
 activityCompose = "1.10.0"
 coreKtx = "1.16.0"
 lifecycle = "2.9.4"
+archCore = "2.2.0"
 room = "2.8.3"
 work = "2.10.5"
 securityCrypto = "1.1.0-alpha06"
 datastore = "1.1.7"
 junit = "4.13.2"
+androidxTest = "1.6.1"
+androidxJunit = "1.2.1"
+robolectric = "4.12.2"
+json = "20240303"
 tdlibx = "1.8.56"
 biometric = "1.1.0"
 argon2kt = "1.4.0"
@@ -22,6 +27,7 @@ appcompat = "1.7.0"
 javaxInject = "1"
 constraintlayout = "2.1.4"
 material = "1.12.0"
+hilt = "2.51.1"
 
 lazyscrollbar = "2.2.0"
 
@@ -37,6 +43,7 @@ androidx-compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
 androidx-compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
 androidx-lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-compose", version.ref = "lifecycle" }
 androidx-lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycle" }
+androidx-arch-core-testing = { module = "androidx.arch.core:core-testing", version.ref = "archCore" }
 androidx-room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }
 androidx-room-ktx = { module = "androidx.room:room-ktx", version.ref = "room" }
 androidx-room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
@@ -44,7 +51,13 @@ androidx-security-crypto = { module = "androidx.security:security-crypto", versi
 androidx-biometric = { module = "androidx.biometric:biometric", version.ref = "biometric" }
 androidx-work-runtime-ktx = { module = "androidx.work:work-runtime-ktx", version.ref = "work" }
 androidx-sqlite = { module = "androidx.sqlite:sqlite-ktx", version = "2.4.0" }
+androidx-room-testing = { module = "androidx.room:room-testing", version.ref = "room" }
+androidx-test-core = { module = "androidx.test:core", version.ref = "androidxTest" }
+androidx-test-runner = { module = "androidx.test:runner", version.ref = "androidxTest" }
+androidx-test-ext-junit = { module = "androidx.test.ext:junit", version.ref = "androidxJunit" }
 junit = { module = "junit:junit", version.ref = "junit" }
+json = { module = "org.json:json", version.ref = "json" }
+robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
 tdlibx = { module = "com.github.tdlibx:td", version.ref = "tdlibx" }
 lazysodium = { module = "com.goterl:lazysodium-android", version.ref = "lazysodium" }
 lazysodium-jna = { module = "net.java.dev.jna:jna", version.ref = "jna" }
@@ -61,6 +74,9 @@ lazyscrollbar = { module = "com.github.nanihadesuka:LazyColumnScrollbar", versio
 coil-compose = { module = "io.coil-kt:coil-compose", version = "2.6.0" }
 androidx-media3-exoplayer = { module = "androidx.media3:media3-exoplayer", version = "1.3.1" }
 androidx-media3-ui = { module = "androidx.media3:media3-ui", version = "1.3.1" }
+hilt-android = { module = "com.google.dagger:hilt-android", version.ref = "hilt" }
+hilt-compiler = { module = "com.google.dagger:hilt-compiler", version.ref = "hilt" }
+hilt-navigation-compose = { module = "androidx.hilt:hilt-navigation-compose", version = "1.0.0" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
@@ -68,3 +84,4 @@ kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-ksp = { id = "com.google.devtools.ksp", version = "2.1.0-1.0.29" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }

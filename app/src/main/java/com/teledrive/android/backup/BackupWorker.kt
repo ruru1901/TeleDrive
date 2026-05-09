@@ -9,12 +9,15 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
-import com.teledrive.android.AppContainer
-import com.teledrive.android.data.BackupFolder
+import com.teledrive.android.data.TeleDriveDatabase
 import com.teledrive.android.data.BackupMode
 import com.teledrive.android.data.BackupScope
 import com.teledrive.android.data.BackupSettingsEntity
 import com.teledrive.android.telegram.TelegramGateway
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
@@ -36,29 +39,18 @@ class BackupWorker(
     private val CHANNEL_ID = "backup_channel"
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-        // Use existing container; should be initialized by Application
-        val container = AppContainer.cachedOrNull() ?: return@withContext Result.failure()
-        val dao = container.database.dao()
-        val gateway = container.telegramGateway
+        val dependencies = EntryPointAccessors.fromApplication(
+            applicationContext,
+            BackupWorkerEntryPoint::class.java,
+        )
+        val dao = dependencies.database().dao()
+        val gateway = dependencies.telegramGateway()
         val manifestManager = ManifestManager(gateway)
 
         val settings = dao.observeBackupSettings().first() ?: return@withContext Result.success()
         if (!settings.enabled) return@withContext Result.success()
 
-        // Build list of all files to process
-        val allFiles = mutableListOf<BackupTaskFile>()
-        if (settings.scope == BackupScope.EntireStorage) {
-            val rootDir = BackupPathResolver.getStorageRoot()
-            if (rootDir.exists() && rootDir.isDirectory) {
-                collectFiles(rootDir, "storage", allFiles)
-            }
-        } else {
-            for (folder in settings.folders) {
-                val localDir = BackupPathResolver.getPathForFolder(folder) ?: continue
-                if (!localDir.exists() || !localDir.isDirectory) continue
-                collectFiles(localDir, folder.label, allFiles)
-            }
-        }
+        val allFiles = BackupPathResolver.resolveBackupFiles(applicationContext, settings)
         val totalFiles = allFiles.size
 
         if (totalFiles == 0) {
@@ -79,19 +71,16 @@ class BackupWorker(
         val mergedFiles = manifest.files.toMutableMap()
 
         // Process each file
-        for ((file, relativePath) in allFiles) {
+        for (file in allFiles) {
             try {
                 val hash = computeFileHash(file)
-                val modifiedEpoch = file.lastModified()
-                val fileSize = file.length()
-                val existing = mergedFiles[relativePath]
+                val existing = mergedFiles[file.relativePath]
                 val needsUpload = existing == null || existing.hash != hash
 
                 if (needsUpload) {
-                    val uri = Uri.fromFile(file)
                     var uploadedMessageId: Long? = null
 
-                    gateway.uploadFile(uri, file.name, null, relativePath).collect { progress ->
+                    gateway.uploadFile(file.uri, file.displayName, null, file.relativePath).collect { progress ->
                         if (progress.done) {
                             uploadedMessageId = progress.messageId
                         }
@@ -99,11 +88,11 @@ class BackupWorker(
 
                     val finalMessageId = uploadedMessageId
                     if (finalMessageId != null) {
-                        mergedFiles[relativePath] = FileManifestEntry(
+                        mergedFiles[file.relativePath] = FileManifestEntry(
                             messageId = finalMessageId,
                             hash = hash,
-                            size = fileSize,
-                            modifiedEpoch = modifiedEpoch
+                            size = file.size,
+                            modifiedEpoch = file.modifiedEpoch
                         )
                         if (existing == null) newCount++ else updatedCount++
                     } else {
@@ -192,24 +181,14 @@ class BackupWorker(
         if (separatorIndex < 0) return null
         val folderLabel = relativePath.substring(0, separatorIndex)
         val subPath = relativePath.substring(separatorIndex + 1)
-        val folder = BackupFolder.entries.firstOrNull { it.label == folderLabel } ?: return null
-        val localDir = BackupPathResolver.getPathForFolder(folder) ?: return null
-        return File(localDir, subPath)
+        return File(BackupPathResolver.getStorageRoot(), "$folderLabel/$subPath")
     }
 
-    private fun collectFiles(dir: File, relativePath: String, out: MutableList<BackupTaskFile>) {
-        dir.listFiles()?.forEach { f ->
-            if (f.isDirectory) {
-                collectFiles(f, "$relativePath/${f.name}", out)
-            } else if (f.isFile) {
-                out.add(BackupTaskFile(file = f, relativePath = "$relativePath/${f.name}"))
-            }
-        }
-    }
-
-    private suspend fun computeFileHash(file: File): String = withContext(Dispatchers.IO) {
+    private suspend fun computeFileHash(file: BackupSourceFile): String = withContext(Dispatchers.IO) {
         val md = MessageDigest.getInstance("SHA-256")
-        file.inputStream().use { `in` ->
+        val input = applicationContext.contentResolver.openInputStream(file.uri)
+            ?: throw IllegalStateException("Unable to open ${file.displayName}")
+        input.use { `in` ->
             val buffer = ByteArray(8192)
             var read: Int
             while (true) {
@@ -246,7 +225,9 @@ class BackupWorker(
     }
 }
 
-private data class BackupTaskFile(
-    val file: File,
-    val relativePath: String
-)
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+interface BackupWorkerEntryPoint {
+    fun database(): TeleDriveDatabase
+    fun telegramGateway(): TelegramGateway
+}

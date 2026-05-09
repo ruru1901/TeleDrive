@@ -17,7 +17,7 @@ This document outlines security issues identified in the TeleDrive Android appli
 ### 1. **Cryptography**
 - ✅ Uses **Argon2id** for password hashing (OWASP recommended)
 - ✅ Uses **AES-256-GCM** for encrypted preferences (AndroidX Security Crypto)
-- ✅ Uses **XChaCha20-Poly1305** (Libsodium) for file encryption
+- ✅ Uses **XChaCha20-Poly1305 (IETF)** (Libsodium) for file encryption
 - ✅ Uses **SQLCipher** for database encryption
 - ✅ Proper use of `SecureRandom` for key generation
 

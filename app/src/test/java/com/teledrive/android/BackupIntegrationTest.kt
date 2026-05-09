@@ -1,19 +1,23 @@
 package com.teledrive.android
 
+import androidx.test.core.app.ApplicationProvider
 import com.teledrive.android.backup.BackupPathResolver
 import com.teledrive.android.data.BackupFolder
+import com.teledrive.android.data.BackupSettingsEntity
 import org.junit.Assert.assertNotNull
 import org.junit.Test
-import java.io.File
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
 /**
  * Integrated tests for the Backup & Sync functions.
  * These tests verify path resolution and state logic for the backup engine.
  */
+@RunWith(RobolectricTestRunner::class)
 class BackupIntegrationTest {
 
     @Test
-    fun testPathResolver_ResolvesCommonFolders() {
+    fun testPathResolver_QueriesCommonFolders() {
         val foldersToTest = listOf(
             BackupFolder.Camera,
             BackupFolder.Downloads,
@@ -22,12 +26,11 @@ class BackupIntegrationTest {
         )
         
         foldersToTest.forEach { folder ->
-            val path = BackupPathResolver.getPathForFolder(folder)
-            println("Testing ${folder.label} -> Resolved to: $path")
-            
-            // In a headless test environment, the path might not exist physically,
-            // but the resolver should return a valid File object.
-            assertNotNull("Path for ${folder.label} should not be null", path)
+            val uris = BackupPathResolver.resolveUris(
+                ApplicationProvider.getApplicationContext(),
+                BackupSettingsEntity(folders = setOf(folder)),
+            )
+            assertNotNull("Uris for ${folder.label} should not be null", uris)
         }
     }
 

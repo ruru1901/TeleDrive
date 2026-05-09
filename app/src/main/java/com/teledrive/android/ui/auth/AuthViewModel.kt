@@ -1,22 +1,24 @@
 package com.teledrive.android.ui.auth
 
 import androidx.lifecycle.ViewModel
-import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.teledrive.android.secure.SecureSettings
 import com.teledrive.android.telegram.AuthState
 import com.teledrive.android.telegram.TelegramGateway
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class AuthViewModel(
+@HiltViewModel
+class AuthViewModel @Inject constructor(
     private val gateway: TelegramGateway,
     private val secureSettings: SecureSettings,
 ) : ViewModel() {
@@ -110,13 +112,3 @@ data class AuthUiState(
     val busy: Boolean = false,
     val message: String? = null,
 )
-
-class AuthViewModelFactory(
-    private val gateway: TelegramGateway,
-    private val secureSettings: SecureSettings,
-) : ViewModelProvider.Factory {
-    @Suppress("UNCHECKED_CAST")
-    override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        return AuthViewModel(gateway, secureSettings) as T
-    }
-}

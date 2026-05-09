@@ -55,7 +55,7 @@ Your **Saved Messages** becomes your root drive. Your **private channels** becom
 ### 🔒 **Strong Security**
 - **Master password protection** with Argon2id hashing (OWASP recommended)
 - **AES-256 database encryption** via SQLCipher
-- **XChaCha20-Poly1305** encryption via Libsodium
+- **XChaCha20-Poly1305 (IETF)** encryption via Libsodium
 - **Biometric authentication** (fingerprint/face unlock)
 - **AES-256-GCM encrypted preferences** for API credentials
 

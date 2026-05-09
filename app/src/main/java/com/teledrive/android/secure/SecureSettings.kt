@@ -101,6 +101,8 @@ class SecureSettings(context: Context) {
     
     fun isMasterPasswordSet(): Boolean = ghostPrefs.getBoolean(PREF_MASTER_PASSWORD_SET, false)
 
+    fun keystoreBackupEnabled(): Boolean = ghostPrefs.getBoolean(PREF_KEYSTORE_BACKUP_ENABLED, false)
+
     fun clear() {
         prefs.edit { clear() }
     }
@@ -112,6 +114,7 @@ class SecureSettings(context: Context) {
         const val KEY_LOGGED_IN = "logged_in"
         const val KEY_DARK_MODE = "dark_mode"
         const val PREF_MASTER_PASSWORD_SET = "ghost_master_password_set"
+        const val PREF_KEYSTORE_BACKUP_ENABLED = "ghost_keystore_backup_enabled"
     }
 }
 

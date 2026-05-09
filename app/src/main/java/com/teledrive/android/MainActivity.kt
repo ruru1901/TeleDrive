@@ -1,50 +1,36 @@
 package com.teledrive.android
 
 import android.os.Bundle
-import androidx.appcompat.app.AppCompatActivity
-import androidx.compose.ui.platform.ComposeView
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.viewModels
 import androidx.compose.runtime.*
 import com.teledrive.android.ui.TeleDriveApp
-import com.teledrive.android.ui.auth.AuthViewModelFactory
-import com.teledrive.android.ui.drive.DriveViewModelFactory
-import androidx.lifecycle.viewmodel.compose.viewModel
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import com.teledrive.android.ui.auth.AuthViewModel
+import com.teledrive.android.ui.drive.DriveViewModel
 import com.teledrive.android.secure.SecureSettings
+import dagger.hilt.android.AndroidEntryPoint
 
-class MainActivity : AppCompatActivity() {
+@AndroidEntryPoint
+class MainActivity : ComponentActivity() {
+
+    private val authViewModel: AuthViewModel by viewModels()
+    private val driveViewModel: DriveViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+        
+        val secureSettings = SecureSettings(application)
+        var darkMode by mutableStateOf(secureSettings.getDarkMode())
 
-        val composeContainer = findViewById<android.widget.FrameLayout>(R.id.composeContainer)
-        val app = application
-        val secureSettings = SecureSettings(app)
-
-        ComposeView(this).also { composeContainer.addView(it) }.setContent {
-            var container by remember { mutableStateOf(AppContainer.cachedOrNull()) }
-            var darkMode by remember { mutableStateOf(secureSettings.getDarkMode()) }
-
-            LaunchedEffect(Unit) {
-                if (container == null) {
-                    container = withContext(Dispatchers.IO) { AppContainer.create(app) }
-                }
-            }
-
-            val ready = container ?: return@setContent
-
-            val authViewModel: com.teledrive.android.ui.auth.AuthViewModel = viewModel(
-                factory = AuthViewModelFactory(ready.telegramGateway, ready.secureSettings)
-            )
-            val driveViewModel: com.teledrive.android.ui.drive.DriveViewModel = viewModel(
-                factory = DriveViewModelFactory(ready.database, ready.telegramGateway, ready.backupManager, ready.secureSettings, app)
-            )
+        setContent {
+            val authState by authViewModel.uiState.collectAsState()
+            val driveState by driveViewModel.uiState.collectAsState()
 
             TeleDriveApp(
                 authViewModel = authViewModel,
                 driveViewModel = driveViewModel,
-                hasCompletedLogin = ready.secureSettings.hasCompletedLogin(),
+                hasCompletedLogin = secureSettings.hasCompletedLogin(),
                 darkMode = darkMode,
                 onToggleTheme = {
                     darkMode = !darkMode

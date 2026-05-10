@@ -1,0 +1,49 @@
+<resources>
+    <string name="app_name">TeleDrive</string>
+    
+    <!-- Security Settings -->
+    <string name="encryption_keys">🔐 Encryption Keys</string>
+    <string name="master_password">Master Password</string>
+    <string name="master_password_not_set">[Not set — tap to configure]</string>
+    <string name="master_password_active">[Active — tap to change]</string>
+    <string name="keystore_backup">Keystore Backup</string>
+    <string name="keystore_last_synced">Last synced: %1$s</string>
+    <string name="keystore_never">Never</string>
+    <string name="keystore_synced_now">Just now</string>
+    <string name="sync_now">Sync now</string>
+    <string name="export_keystore">Export as Base64</string>
+    <string name="keystore_exported">Keystore exported to clipboard</string>
+    <string name="no_keystore_to_export">No keystore to export</string>
+    <string name="restore_from_telegram">Restore from Telegram</string>
+    <string name="biometric_lock">Biometric Lock</string>
+    <string name="require_fingerprint_before_decrypting">Require fingerprint before decrypting files</string>
+    <string name="danger_zone">Danger Zone</string>
+    <string name="clear_all_local_keys">Clear all local keys</string>
+    <string name="keys_cleared">All keys cleared</string>
+    
+    <!-- Set Master Password -->
+    <string name="set_master_password">Set Master Password</string>
+    <string name="new_master_password">New master password</string>
+    <string name="confirm_password">Confirm password</string>
+    <string name="master_password_helper_text">This password encrypts your file keys and backs them up to your Telegram Saved Messages. If you forget it, encrypted files cannot be recovered.</string>
+    <string name="set_password">Set password</string>
+    <string name="password_required">Password is required</string>
+    <string name="passwords_do_not_match">Passwords do not match</string>
+    <string name="password_too_short">Password must be at least 8 characters</string>
+    <string name="master_password_set">Master password set. Keystore backed up to Telegram.</string>
+    
+    <!-- Change Master Password -->
+    <string name="change_master_password">Change Master Password</string>
+    <string name="current_password">Current password</string>
+    <string name="new_password">New password</string>
+    <string name="confirm_new_password">Confirm new password</string>
+    <string name="incorrect_password">Incorrect password</string>
+    <string name="master_password_changed">Master password changed successfully</string>
+    
+    <!-- Clear Keys Confirmation -->
+    <string name="change_password">Change password</string>
+    <string name="clear_keys_title">Clear Encryption Keys</string>
+    <string name="clear_keys_message">This will delete all encryption keys from this device. Encrypted files cannot be decrypted without keys or master password. Are you sure?</string>
+    <string name="cancel">Cancel</string>
+    <string name="clear">Clear</string>
+</resources>

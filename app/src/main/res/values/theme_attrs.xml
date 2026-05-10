@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="wave_light_background">#FFFFFF</color>
+    <color name="wave_dark_background">#121212</color>
+    <color name="wave_light_surface">#F5F5F5</color>
+    <color name="wave_dark_surface">#1E1E1E</color>
+</resources>

@@ -37,15 +37,7 @@ data class FileEntity(
     val tdThumbnailFileId: Int? = null,
     val tdThumbnailLocalPath: String? = null,
     val caption: String? = null,
-    val syncStatus: SyncStatus = SyncStatus.Synced,
-    val backupSourcePath: String? = null,
 )
-
-enum class SyncStatus {
-    LocalOnly,
-    CloudOnly,
-    Synced,
-}
 
 @Entity(tableName = "transfers")
 data class TransferEntity(

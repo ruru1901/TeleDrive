@@ -49,6 +49,7 @@ object AppModule {
             .addMigrations(TeleDriveDatabase.MIGRATION_4_5)
             .addMigrations(TeleDriveDatabase.MIGRATION_5_6)
             .addMigrations(TeleDriveDatabase.MIGRATION_6_7)
+            .addMigrations(TeleDriveDatabase.MIGRATION_7_8)
             .fallbackToDestructiveMigration(true)
             .build()
     }

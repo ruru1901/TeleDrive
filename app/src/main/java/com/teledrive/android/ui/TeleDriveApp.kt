@@ -172,7 +172,6 @@ import com.teledrive.android.data.FolderEntity
 import com.teledrive.android.data.TransferEntity
 import com.teledrive.android.data.BackupSettingsEntity
 import com.teledrive.android.data.PreviewCacheEntity
-import com.teledrive.android.data.SyncStatus
 import com.teledrive.android.data.TransferStatus
 import com.teledrive.android.data.BackupFolder
 import com.teledrive.android.data.BackupScope
@@ -289,45 +288,6 @@ when (authState.authState) {
             )
         }
     }
-}
-
-@Composable
-private fun ThemeWaveRevealLayer(
-    progress: Float,
-    origin: Offset?,
-    content: @Composable () -> Unit,
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .drawWithContent {
-            val bias = ((origin?.x ?: (size.width * 0.5f)) / size.width).coerceIn(0f, 1f)
-            val baseY = size.height * progress
-            val startAmplitude = 14.dp.toPx()
-            val endAmplitude = 8.dp.toPx()
-            val amplitude = startAmplitude + (endAmplitude - startAmplitude) * progress
-            val wavelength = size.width * 0.95f
-            val angularFrequency = (2f * Math.PI.toFloat()) / wavelength
-            val phase = progress * (Math.PI.toFloat() * 1.2f) + bias * 0.6f
-            val step = 10.dp.toPx().coerceAtLeast(5f)
-
-            val wavePath = Path().apply {
-                moveTo(0f, 0f)
-                lineTo(0f, (baseY + amplitude * sin(phase)).coerceIn(0f, size.height))
-                var x = 0f
-                while (x <= size.width + step) {
-                    val y = baseY + amplitude * sin((x * angularFrequency) + phase)
-                    lineTo(x, y.coerceIn(0f, size.height))
-                    x += step
-                }
-                lineTo(size.width, 0f)
-                close()
-            }
-            clipPath(wavePath) {
-                this@drawWithContent.drawContent()
-            }
-        },
-    ) { content() }
 }
 
 @Composable
@@ -1071,7 +1031,7 @@ private fun DashboardScaffold(
                                     val preview = state.previewCache[previewCacheKeyFor(file)]
                                     val tint = fileTint(file)
                                     val cacheKey = previewCacheKeyFor(file)
-                                    val sizeAndDate = "${formatBytes(file.size)} \u2022 ${formatDate(file.createdAt)} \u2022 ${sourceLabel(file)}"
+                                    val sizeAndDate = "${formatBytes(file.size)} \u2022 ${formatDate(file.createdAt)}"
                                     FileListRow(
                                         file = file,
                                         preview = preview,
@@ -1252,176 +1212,6 @@ private fun DashboardScaffold(
     }
 
     LaunchedEffect(state.activeFolderId) { selectedIds = emptySet() }
-}
-
-@Composable
-private fun CategorySection(
-    categories: List<CategoryCardModel>,
-    onOpenTab: (FileTab) -> Unit,
-    previewCache: Map<String, com.teledrive.android.data.PreviewCacheEntity>,
-) {
-    ElevatedCard(
-        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface),
-        shape = RoundedCornerShape(24.dp),
-    ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Categories", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            categories.chunked(2).forEach { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    row.forEach { category ->
-                        CategoryCard(
-                            model = category,
-                            modifier = Modifier.weight(1f),
-                            onClick = { onOpenTab(category.tab) },
-                            previewCache = previewCache,
-                        )
-                    }
-                    if (row.size == 1) Spacer(Modifier.weight(1f))
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun CategoryCard(
-    model: CategoryCardModel,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-    previewCache: Map<String, com.teledrive.android.data.PreviewCacheEntity>,
-) {
-    Card(
-        onClick = onClick,
-        modifier = modifier,
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)),
-    ) {
-        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(model.tint.copy(alpha = 0.18f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(model.icon, contentDescription = null, tint = model.tint, modifier = Modifier.size(20.dp))
-                }
-                Column {
-                    Text(model.label, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyLarge)
-                    Text(model.countLabel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            PreviewThumbnailStrip(files = model.previewFiles, tint = model.tint, previewCache = previewCache)
-        }
-    }
-}
-
-@Composable
-private fun PreviewThumbnailStrip(
-    files: List<FileEntity>,
-    tint: Color,
-    previewCache: Map<String, com.teledrive.android.data.PreviewCacheEntity> = emptyMap(),
-) {
-    val localCache = remember { androidx.compose.runtime.snapshots.SnapshotStateMap<String, ImageBitmap>() }
-    if (files.isEmpty()) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            repeat(2) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    repeat(2) {
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(48.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(tint.copy(alpha = 0.10f)),
-                        )
-                    }
-                }
-            }
-        }
-        return
-    }
-    val previewItems = files.take(4)
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        previewItems.chunked(2).forEach { rowFiles ->
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                rowFiles.forEach { file ->
-                    val preview = previewCache[previewCacheKeyFor(file)]
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(48.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        FileContentThumbnail(
-                            file = file,
-                            modifier = Modifier.fillMaxSize(),
-                            tint = tint,
-                            compact = true,
-                            preview = preview,
-                            thumbnailBitmapCache = localCache,
-                            cacheKey = previewCacheKeyFor(file),
-                        )
-                    }
-                }
-                if (rowFiles.size == 1) {
-                    Spacer(Modifier.weight(1f))
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun BackupStatusCard(
-    settings: BackupSettingsEntity,
-    storageStats: StorageStats,
-    onOpen: () -> Unit,
-) {
-    ElevatedCard(
-        onClick = onOpen,
-        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)),
-        shape = RoundedCornerShape(22.dp),
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.Outlined.SdStorage, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            }
-            Spacer(Modifier.width(12.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text("Device Storage Backup", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text(
-                    "Total: ${formatBytes(storageStats.totalBytes)}, Used: ${formatBytes(storageStats.usedBytes)}, Free: ${formatBytes(storageStats.freeBytes)}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                val backupModeLabel = when (settings.mode) {
-                    BackupMode.OneWay -> "One-way backup"
-                    BackupMode.TwoWay -> "Two-way sync"
-                }
-                Text(
-                    "Last backup: ${formatRelativeTime(settings.lastBackupAt)} • $backupModeLabel",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Icon(Icons.Default.Settings, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -1658,7 +1448,6 @@ private fun FileListRow(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(file.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
                     Spacer(Modifier.width(6.dp))
-                    SyncStatusIcon(file.syncStatus)
                 }
                 Text(
                     sizeAndDate,
@@ -1679,21 +1468,6 @@ private fun FileListRow(
             HorizontalDivider(color = DividerDefaults.color.copy(alpha = 0.55f))
         }
     }
-}
-
-@Composable
-private fun SyncStatusIcon(status: SyncStatus) {
-    val icon = when (status) {
-        SyncStatus.LocalOnly -> Icons.Default.CloudOff
-        SyncStatus.CloudOnly -> Icons.Default.Cloud
-        SyncStatus.Synced -> Icons.Outlined.CheckCircle
-    }
-    val tint = when (status) {
-        SyncStatus.LocalOnly -> MaterialTheme.colorScheme.error.copy(alpha = 0.6f)
-        SyncStatus.CloudOnly -> MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
-        SyncStatus.Synced -> MaterialTheme.colorScheme.secondary
-    }
-    Icon(icon, contentDescription = null, modifier = Modifier.size(14.dp), tint = tint)
 }
 
 @Composable
@@ -2342,39 +2116,6 @@ private fun UploadProgressStrip(
     }
 }
 
-@Composable
-private fun rememberStorageStats(): StorageStats {
-    return remember {
-        val stat = StatFs(Environment.getDataDirectory().absolutePath)
-        val total = stat.totalBytes
-        val free = stat.availableBytes
-        StorageStats(totalBytes = total, usedBytes = total - free, freeBytes = free)
-    }
-}
-
-private fun buildCategories(files: List<FileEntity>): List<CategoryCardModel> {
-    val photoFiles = mutableListOf<FileEntity>()
-    val videoFiles = mutableListOf<FileEntity>()
-    val genericFiles = mutableListOf<FileEntity>()
-    val audioFiles = mutableListOf<FileEntity>()
-
-    files.forEach { file ->
-        when {
-            fileTypeGroup(file) == FileTab.Photos -> photoFiles.add(file)
-            fileTypeGroup(file) == FileTab.Videos -> videoFiles.add(file)
-            isAudio(file) -> audioFiles.add(file)
-            else -> genericFiles.add(file)
-        }
-    }
-
-    return listOf(
-        CategoryCardModel("Photos", "${photoFiles.size} files", Icons.Outlined.Image, Color(0xFF5A9BFF), photoFiles, FileTab.Photos),
-        CategoryCardModel("Videos", "${videoFiles.size} videos", Icons.Outlined.VideoLibrary, Color(0xFFB367FF), videoFiles, FileTab.Videos),
-        CategoryCardModel("Files", "${genericFiles.size} files", Icons.Outlined.InsertDriveFile, Color(0xFF6CC28A), genericFiles, FileTab.Files),
-        CategoryCardModel("Audio", "${audioFiles.size} files", Icons.Outlined.MusicNote, Color(0xFFF0A24C), audioFiles, FileTab.Files),
-    )
-}
-
 private fun previewCacheKeyFor(file: FileEntity): String =
     file.tdRemoteUniqueId?.takeIf { it.isNotBlank() } ?: "${file.folderId ?: 0L}:${file.messageId}"
 
@@ -2399,20 +2140,6 @@ private fun decodeThumbnail(encoded: String?): ImageBitmap? =
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
         }.getOrNull()
     }
-
-private fun loadTextSnippet(file: File, maxLines: Int, maxChars: Int): String? =
-    runCatching {
-        file.useLines { lines ->
-            lines
-                .filter { it.isNotBlank() }
-                .take(maxLines)
-                .joinToString("\n")
-                .take(maxChars)
-        }
-    }.getOrNull()
-
-private fun currentFolderName(activeFolderId: Long?, folders: List<FolderEntity>) =
-    if (activeFolderId == null) "TeleDrive" else folders.firstOrNull { it.id == activeFolderId }?.name ?: "Folder"
 
 private fun fileIcon(file: FileEntity): ImageVector {
     val mime = file.mimeType.orEmpty()
@@ -2477,14 +2204,6 @@ private fun fileTint(file: FileEntity): Color {
     }
 }
 
-private fun sourceLabel(file: FileEntity): String = when {
-    file.folderId == null -> "Desktop Sync"
-    isAudio(file) -> "Synced from Mac"
-    fileTypeGroup(file) == FileTab.Videos -> "Camera Uploads"
-    fileTypeGroup(file) == FileTab.Photos -> "Mobile Upload"
-    else -> "Shared Folder"
-}
-
 private fun displayFileType(file: FileEntity): String {
     val mime = file.mimeType?.takeIf { it.isNotBlank() }
     if (mime != null) return mime
@@ -2529,21 +2248,6 @@ private fun backupFolderIcon(folder: BackupFolder): ImageVector = when (folder) 
     BackupFolder.WhatsAppVideo -> Icons.Outlined.VideoLibrary
     BackupFolder.Documents -> Icons.Outlined.Description
 }
-
-private data class StorageStats(
-    val totalBytes: Long,
-    val usedBytes: Long,
-    val freeBytes: Long,
-)
-
-private data class CategoryCardModel(
-    val label: String,
-    val countLabel: String,
-    val icon: ImageVector,
-    val tint: Color,
-    val previewFiles: List<FileEntity>,
-    val tab: FileTab,
-)
 
 private enum class FileTab(val label: String, val icon: ImageVector, val sectionTitle: String) {
     Home("Home", Icons.Default.Cloud, "All Files"),

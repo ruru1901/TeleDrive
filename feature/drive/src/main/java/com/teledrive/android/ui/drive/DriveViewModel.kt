@@ -65,8 +65,8 @@ class DriveViewModel @Inject constructor(
     database: TeleDriveDatabase,
     private val gateway: TelegramGateway,
     private val backupManager: com.teledrive.android.backup.BackupManager,
-    val keystoreRepository: KeystoreRepository? = null,
-    val masterPasswordService: MasterPasswordService? = null,
+    val keystoreRepository: KeystoreRepository,
+    val masterPasswordService: MasterPasswordService,
 ) : ViewModel() {
     private val dao = database.dao()
     private val workManager by lazy { WorkManager.getInstance(context) }
@@ -324,7 +324,7 @@ class DriveViewModel @Inject constructor(
                     folderId = folderId,
                 )
                 if (cryptoResult != null) {
-                    keystoreRepository?.saveKey(
+                    keystoreRepository.saveKey(
                         KeyEntry(
                             messageId = msgId,
                             keyBase64 = cryptoResult.keyBase64,
@@ -334,7 +334,7 @@ class DriveViewModel @Inject constructor(
                             isEncrypted = true,
                         ),
                     )
-                    masterPasswordService?.syncKeystore()
+                    masterPasswordService.syncKeystore()
                 }
                 dao.upsertTransfer(
                     TransferEntity(
@@ -407,9 +407,9 @@ class DriveViewModel @Inject constructor(
                     destination = destination,
                 )
                 if (lastLocalPath != null || destination != null) {
-                    val isEncrypted = file.name.endsWith(".ghost") && file.caption?.contains("#ghost_enc") == true
+                    val isEncrypted = file.name.endsWith(".ghost")
                     if (isEncrypted && lastLocalPath != null) {
-                        val keyEntry = keystoreRepository?.getKey(file.messageId)
+                        val keyEntry = keystoreRepository.getKey(file.messageId)
                         if (keyEntry != null) {
                             val encryptedBytes = File(lastLocalPath!!).readBytes()
                             val decryptedBytes = GhostCrypto.decryptFile(encryptedBytes, keyEntry.keyBase64)
@@ -417,7 +417,7 @@ class DriveViewModel @Inject constructor(
                             if (decryptedBytes != null) {
                                 val decryptedFile = File(context.cacheDir, decryptedFileName)
                                 FileOutputStream(decryptedFile).use { it.write(decryptedBytes) }
-                                val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", decryptedFile)
+                                val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", decryptedFile)
                                 val intent = Intent(Intent.ACTION_VIEW).apply {
                                     setDataAndType(uri, file.mimeType ?: "application/octet-stream")
                                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -507,6 +507,8 @@ class DriveViewModel @Inject constructor(
     }
 
     fun cancelTransfer(id: String) {
+        workManager.cancelUniqueWork("upload_$id")
+        workManager.cancelUniqueWork("download_$id")
         viewModelScope.launch {
             val allTransfers = dao.observeTransfers().first()
             val existing = allTransfers.firstOrNull { it.id == id }

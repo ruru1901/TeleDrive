@@ -49,6 +49,7 @@ class MasterPasswordService @Inject constructor(
         if (prefs.keystoreBackupEnabled()) {
             uploadKeystoreBackup(blobB64)
         }
+        prefs.setKeystoreBackupEnabled(true)
         prefs.ghostPrefs.edit().putBoolean("ghost_master_password_set", true).apply()
     }
 
@@ -105,7 +106,8 @@ class MasterPasswordService @Inject constructor(
             val salt = blob.copyOfRange(0, SALT_BYTES)
             prefs.ghostPrefs.edit().putString("ghost_keystore_enc", blobB64).apply()
             prefs.ghostPrefs.edit().putString("ghost_kek_salt", Base64.encodeToString(salt, Base64.NO_WRAP)).apply()
-            prefs.ghostPrefs.edit().putBoolean("ghost_master_password_set", true).apply()
+        prefs.setKeystoreBackupEnabled(true)
+        prefs.ghostPrefs.edit().putBoolean("ghost_master_password_set", true).apply()
             return@withContext true
         }
         false

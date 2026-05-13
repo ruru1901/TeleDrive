@@ -16,7 +16,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PreviewCacheEntity::class,
         KeyEntry::class,
     ],
-    version = 7,
+    version = 8,
     exportSchema = false,
 )
 @TypeConverters(TeleDriveConverters::class)
@@ -53,10 +53,10 @@ abstract class TeleDriveDatabase : RoomDatabase() {
             }
         }
 
+        // MIGRATION_5_6: intentionally empty — version 6 was a metadata-only bump with no schema changes.
+        // This migration MUST stay registered in AppModule so users on v5 can upgrade without data loss.
         val MIGRATION_5_6: Migration = object : Migration(5, 6) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                // No schema changes between v5 and v6
-            }
+            override fun migrate(db: SupportSQLiteDatabase) { /* no-op: schema unchanged */ }
         }
 
         val MIGRATION_6_7: Migration = object : Migration(6, 7) {
@@ -78,6 +78,13 @@ abstract class TeleDriveDatabase : RoomDatabase() {
                 
                 // Add caption column to files table
                 db.execSQL("ALTER TABLE files ADD COLUMN caption TEXT")
+            }
+        }
+
+        val MIGRATION_7_8: Migration = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // syncStatus and backupSourcePath columns remain in SQLite
+                // but are no longer mapped to FileEntity
             }
         }
     }
@@ -120,9 +127,4 @@ class TeleDriveConverters {
             }
             .toSet()
 
-    @TypeConverter
-    fun syncStatusToString(value: SyncStatus): String = value.name
-
-    @TypeConverter
-    fun syncStatusFromString(value: String): SyncStatus = SyncStatus.valueOf(value)
 }

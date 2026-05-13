@@ -45,7 +45,7 @@ class BackupWorker(
         )
         val dao = dependencies.database().dao()
         val gateway = dependencies.telegramGateway()
-        val manifestManager = ManifestManager(gateway)
+        val manifestManager = dependencies.manifestManager()
 
         val settings = dao.observeBackupSettings().first() ?: return@withContext Result.success()
         if (!settings.enabled) return@withContext Result.success()
@@ -135,7 +135,9 @@ class BackupWorker(
                 val entries = finalManifest.files.entries.toList()
                 for ((relPath, entry) in entries) {
                     val localFile = resolveLocalPath(settings, relPath)
-                    if (localFile != null && (!localFile.exists() || localFile.lastModified() < entry.modifiedEpoch)) {
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                        skippedCount++
+                    } else if (localFile != null && (!localFile.exists() || localFile.lastModified() < entry.modifiedEpoch)) {
                         gateway.downloadFile(entry.messageId, null).collect { progress ->
                             if (progress.done && progress.localPath != null) {
                                 val downloaded = File(progress.localPath)
@@ -163,7 +165,15 @@ class BackupWorker(
         // Post completion notification (separate from foreground)
         val finalStats = "$newCount new, $updatedCount updated, $skippedCount skipped"
         val finalNotif = createCompletionNotification(finalStats)
-        NotificationManagerCompat.from(applicationContext).notify(COMPLETION_NOTIF_ID, finalNotif)
+        val notifManager = NotificationManagerCompat.from(applicationContext)
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU ||
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                applicationContext,
+                android.Manifest.permission.POST_NOTIFICATIONS
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            notifManager.notify(COMPLETION_NOTIF_ID, finalNotif)
+        }
 
         // Brief delay to allow user to see completion notification
         delay(3000)
@@ -230,4 +240,5 @@ class BackupWorker(
 interface BackupWorkerEntryPoint {
     fun database(): TeleDriveDatabase
     fun telegramGateway(): TelegramGateway
+    fun manifestManager(): ManifestManager
 }

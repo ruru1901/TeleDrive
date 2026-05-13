@@ -13,3 +13,10 @@
     public static int d(...);
     public static int v(...);
 }
+
+# LazySodium + JNA — required for GhostCrypto native crypto in release builds
+-keep class com.sun.jna.** { *; }
+-keep interface com.sun.jna.** { *; }
+-keep class com.goterl.lazysodium.** { *; }
+-dontwarn com.sun.jna.**
+-dontwarn com.goterl.lazysodium.**

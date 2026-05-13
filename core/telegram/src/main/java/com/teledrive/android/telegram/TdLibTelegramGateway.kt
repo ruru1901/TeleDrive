@@ -1150,8 +1150,13 @@ class TdLibTelegramGateway(
         send(reflection.newFunction("EditMessageText").also {
             reflection.setIfPresent(it, "chatId", chatId)
             reflection.setIfPresent(it, "messageId", messageId)
-            reflection.setIfPresent(it, "text", formattedText)
-            reflection.setIfPresent(it, "disableWebPagePreview", true)
+            reflection.setIfPresent(it, "replyMarkup", null)
+            reflection.setIfPresent(it, "inputMessageContent",
+                reflection.newObject("InputMessageText").also { msg ->
+                    reflection.setIfPresent(msg, "text", formattedText)
+                    reflection.setIfPresent(msg, "clearDraft", false)
+                }
+            )
         })
     }
 

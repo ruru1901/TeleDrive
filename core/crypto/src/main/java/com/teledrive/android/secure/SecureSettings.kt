@@ -3,10 +3,8 @@ package com.teledrive.android.secure
 import android.content.Context
 import android.util.Base64
 import androidx.core.content.edit
-import androidx.room.Room
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
-import com.teledrive.android.data.TeleDriveDatabase
 import java.security.SecureRandom
 
 class SecureSettings(context: Context) {
@@ -32,25 +30,6 @@ class SecureSettings(context: Context) {
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
         )
     }
-
-    private var _ghostDb: TeleDriveDatabase? = null
-    val ghostDb: TeleDriveDatabase?
-        get() {
-            if (_ghostDb == null) {
-                _ghostDb = try {
-                    Room.databaseBuilder(
-                        appContext,
-                        TeleDriveDatabase::class.java,
-                        "teledrive_ghost.db",
-                    )
-                        .fallbackToDestructiveMigration()
-                        .build()
-                } catch (e: Exception) {
-                    null
-                }
-            }
-            return _ghostDb
-        }
 
     fun saveApiCredentials(apiId: Int, apiHash: String) {
         prefs.edit {
@@ -102,6 +81,10 @@ class SecureSettings(context: Context) {
     fun isMasterPasswordSet(): Boolean = ghostPrefs.getBoolean(PREF_MASTER_PASSWORD_SET, false)
 
     fun keystoreBackupEnabled(): Boolean = ghostPrefs.getBoolean(PREF_KEYSTORE_BACKUP_ENABLED, false)
+
+    fun setKeystoreBackupEnabled(enabled: Boolean) {
+        ghostPrefs.edit { putBoolean(PREF_KEYSTORE_BACKUP_ENABLED, enabled) }
+    }
 
     fun clear() {
         prefs.edit { clear() }
